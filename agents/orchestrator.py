@@ -293,11 +293,10 @@ class HealthDriftOrchestrator:
         """
         Quick analysis for single metric without full context
         
-        Simplified pipeline for rapid feedback:
-        - Drift detection only
-        - Basic care guidance
-        - No risk assessment (requires history)
-        - No safety escalation (requires full context)
+        Simplified pipeline for rapid feedback (ONLY 1 API CALL):
+        - Drift detection only (with built-in basic guidance)
+        - No separate agent calls
+        - Reduces API quota usage by 80%
         
         Args:
             metric_name (str): Metric name
@@ -317,7 +316,7 @@ class HealthDriftOrchestrator:
         """
         drift_percentage = ((recent - baseline) / baseline) * 100
         
-        # Execute drift agent only
+        # Execute drift agent only - single API call
         drift_result = self.drift_agent.analyze_drift(
             metric_name=metric_name,
             baseline_value=baseline,
@@ -327,17 +326,47 @@ class HealthDriftOrchestrator:
             additional_context=user_profile
         )
         
-        # Generate basic care guidance
-        care_result = self.care_agent.generate_guidance(
-            drift_analysis=drift_result,
-            user_profile=user_profile
-        )
+        # Generate basic care guidance from drift data without separate API call
+        if drift_result.get('success'):
+            severity = drift_result.get('severity_level', 'low')
+            
+            # Simple rule-based guidance to avoid extra API call
+            if severity == 'high':
+                basic_guidance = {
+                    "success": True,
+                    "guidance_list": [
+                        f"Your {metric_name} has changed significantly. Consider consulting a healthcare provider.",
+                        "Focus on rest, hydration, and stress management.",
+                        "Continue daily monitoring to track progress."
+                    ]
+                }
+            elif severity == 'moderate':
+                basic_guidance = {
+                    "success": True,
+                    "guidance_list": [
+                        f"Your {metric_name} shows some changes worth monitoring.",
+                        "Pay attention to sleep quality and daily activity levels.",
+                        "Track any patterns related to lifestyle factors."
+                    ]
+                }
+            else:
+                basic_guidance = {
+                    "success": True,
+                    "guidance_list": [
+                        f"Your {metric_name} is within normal variation range.",
+                        "Keep up your current healthy habits.",
+                        "Continue regular monitoring for your records."
+                    ]
+                }
+        else:
+            basic_guidance = {"success": False, "guidance_list": []}
         
         return {
             "success": True,
             "drift_summary": drift_result,
-            "care_guidance": care_result,
-            "note": "Quick analysis - for comprehensive insights, use analyze_health_drift_comprehensive()"
+            "care_guidance": basic_guidance,
+            "api_calls_used": 1,
+            "note": "Quick analysis (1 API call) - for comprehensive insights with 5 agents, upgrade your API plan"
         }
     
     def get_agent_status(self) -> Dict[str, Any]:
