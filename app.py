@@ -325,7 +325,8 @@ with st.sidebar:
     menu_options = {
         "🏠 Home": "Home",
         "👤 Profile": "Profile",
-        "📋 Daily Health Check": "Daily Health Check",
+        "� Health Context": "Health Context",
+        "�📋 Daily Health Check": "Daily Health Check",
         "📊 Dashboard": "Dashboard",
         "💬 AI Health Chat": "AI Health Chat"
     }
@@ -364,6 +365,10 @@ try:
     elif current_page == "Profile":
         from pages import profile
         profile.show()
+    
+    elif current_page == "Health Context":
+        from pages import context_inputs
+        context_inputs.show()
     
     elif current_page == "Daily Health Check":
         from pages import daily_check

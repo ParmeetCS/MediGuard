@@ -8,69 +8,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
-import random
-
-
-def generate_dummy_data(days=14):
-    """
-    Generate realistic dummy time-series health data with gradual drift
-    """
-    base_date = datetime.now() - timedelta(days=days-1)
-    dates = [base_date + timedelta(days=i) for i in range(days)]
-    
-    # Generate movement speed data (with slight downward drift)
-    movement_speed = []
-    base_speed = 3.2
-    for i in range(days):
-        # Add gradual drift and daily variation
-        drift = -0.02 * i  # Gradual decline
-        noise = random.uniform(-0.15, 0.15)
-        value = base_speed + drift + noise
-        movement_speed.append(round(max(2.0, value), 2))
-    
-    # Generate stability data (with slight downward drift)
-    stability = []
-    base_stability = 92
-    for i in range(days):
-        drift = -0.3 * i
-        noise = random.uniform(-2, 2)
-        value = base_stability + drift + noise
-        stability.append(round(max(70, min(100, value)), 1))
-    
-    # Generate walk speed data (relatively stable)
-    walk_speed = []
-    base_walk = 1.2
-    for i in range(days):
-        drift = -0.01 * i
-        noise = random.uniform(-0.08, 0.08)
-        value = base_walk + drift + noise
-        walk_speed.append(round(max(0.8, value), 2))
-    
-    # Generate hand steadiness (showing improvement)
-    hand_steadiness = []
-    base_steady = 85
-    for i in range(days):
-        drift = 0.2 * i  # Slight improvement
-        noise = random.uniform(-1.5, 1.5)
-        value = base_steady + drift + noise
-        hand_steadiness.append(round(max(70, min(100, value)), 1))
-    
-    # Generate overall mobility score
-    overall_mobility = []
-    for i in range(days):
-        # Composite of other metrics
-        score = (stability[i] * 0.4 + hand_steadiness[i] * 0.3 + 
-                (100 - movement_speed[i] * 10) * 0.3)
-        overall_mobility.append(round(score, 1))
-    
-    return pd.DataFrame({
-        'date': dates,
-        'movement_speed': movement_speed,
-        'stability': stability,
-        'walk_speed': walk_speed,
-        'hand_steadiness': hand_steadiness,
-        'overall_mobility': overall_mobility
-    })
 
 
 def detect_drift(data, column, threshold_change=5):
@@ -108,12 +45,19 @@ def show():
     st.markdown("---")
     
     # ========================================
-    # GENERATE DUMMY DATA
+    # LOAD DATA FROM DATABASE
     # ========================================
-    # Check if user has completed a health check
-    has_data = st.session_state.get('check_completed', False)
+    from storage.health_repository import get_health_check_history
     
-    if not has_data:
+    user_id = st.session_state.get('user_id')
+    if not user_id:
+        st.error("❌ User not authenticated. Please log in.")
+        return
+    
+    # Get health check history from database
+    history_result = get_health_check_history(user_id, days=14)
+    
+    if not history_result['success'] or len(history_result['data']) == 0:
         st.info("""
         📋 **No Data Available Yet**
         
@@ -129,14 +73,11 @@ def show():
             if st.button("📋 Start Health Check", type="primary", use_container_width=True):
                 st.session_state.current_page = "Daily Health Check"
                 st.rerun()
-        
-        st.markdown("---")
-        st.markdown("### 📊 Preview Dashboard (Demo Data)")
-        st.caption("Below is a preview with simulated data to show what your dashboard will look like")
-        st.markdown("<br>", unsafe_allow_html=True)
+        return
     
-    # Generate 14 days of dummy data
-    df = generate_dummy_data(days=14)
+    # Convert to DataFrame
+    df = pd.DataFrame(history_result['data'])
+    df['date'] = pd.to_datetime(df['check_date'])
     
     # ========================================
     # SUMMARY CARDS
@@ -252,6 +193,86 @@ def show():
             <p style='margin: 0; color: #666;'>{speed_change:+.1f}% change</p>
         </div>
         """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("---")
+    
+    # ========================================
+    # AI-POWERED INSIGHTS
+    # ========================================
+    st.markdown("### 🤖 AI-Powered Health Insights")
+    
+    # Check if ADK is available
+    try:
+        from agents.ai_integration import get_ai_health_insights
+        from agents.adk_runtime import is_adk_ready
+        ADK_AVAILABLE = is_adk_ready()
+    except ImportError:
+        ADK_AVAILABLE = False
+    
+    if ADK_AVAILABLE:
+        # Add button to run AI analysis
+        if st.button("🚀 Generate AI Analysis", type="primary", use_container_width=False):
+            with st.spinner("🧠 Analyzing your health data with AI..."):
+                # Run AI analysis
+                ai_result = get_ai_health_insights(user_id, metric="overall_mobility")
+                
+                if ai_result['success'] and ai_result['has_data']:
+                    summary = ai_result['summary']
+                    recommendations = ai_result['recommendations']
+                    
+                    # Display insights in organized layout
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        st.markdown("#### 📊 Analysis Summary")
+                        
+                        # Drift status card
+                        drift_color = "#FFEBEE" if abs(summary['drift_percentage']) > 5 else "#E8F5E9"
+                        st.markdown(f"""
+                        <div style='background: {drift_color}; padding: 1.5rem; border-radius: 12px; margin-bottom: 1rem;'>
+                            <h4 style='margin: 0 0 1rem 0;'>{summary['metric_name']}</h4>
+                            <p style='margin: 0.5rem 0;'><strong>Change:</strong> {summary['drift_percentage']:+.1f}% from baseline</p>
+                            <p style='margin: 0.5rem 0;'><strong>Severity:</strong> {summary['severity'].title()}</p>
+                            <p style='margin: 0.5rem 0;'><strong>Trend:</strong> {summary['trend'].title()}</p>
+                            <p style='margin: 0.5rem 0;'><strong>Risk Level:</strong> {summary['risk_level'].title()}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Possible factors
+                        if summary['possible_factors']:
+                            st.markdown("**🔍 Possible Contributing Factors:**")
+                            for factor in summary['possible_factors']:
+                                st.markdown(f"- {factor}")
+                    
+                    with col2:
+                        st.markdown("#### 💡 Recommendations")
+                        for i, rec in enumerate(recommendations, 1):
+                            st.markdown(f"**{i}.** {rec}")
+                        
+                        # Confidence indicator
+                        confidence = int(summary['confidence'] * 100)
+                        st.metric("Analysis Confidence", f"{confidence}%")
+                    
+                    # Escalation warning if needed
+                    if summary['escalation_needed']:
+                        st.error("""
+                        ⚠️ **Important:** The AI analysis suggests discussing these changes with your healthcare provider.
+                        """)
+                    else:
+                        st.success("✅ No immediate concerns detected. Continue monitoring.")
+                
+                elif ai_result['error']:
+                    st.warning(f"ℹ️ {ai_result['error']}")
+                else:
+                    st.info("💡 Complete more daily health checks to enable AI analysis.")
+    else:
+        st.info("""
+        🤖 **AI Analysis Not Configured**
+        
+        To enable AI-powered insights, configure your GOOGLE_API_KEY in the .env file.
+        The AI will analyze your health trends using advanced machine learning.
+        """)
     
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("---")

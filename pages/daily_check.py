@@ -242,24 +242,32 @@ def show():
         time.sleep(0.5)
         
         # ========================================
-        # GENERATE SIMULATED RESULTS
+        # SAVE RESULTS TO DATABASE
         # ========================================
-        # Generate realistic dummy values with some variation
-        st.session_state.analysis_results = {
-            'sit_stand_speed': round(random.uniform(1.8, 3.5), 2),  # seconds per rep
-            'sit_stand_stability': round(random.uniform(75, 95), 1),  # percentage
-            'walk_speed': round(random.uniform(0.9, 1.4), 2),  # meters per second
-            'walk_stability': round(random.uniform(70, 92), 1),  # percentage
-            'gait_symmetry': round(random.uniform(80, 98), 1),  # percentage
-            'hand_steadiness': round(random.uniform(82, 96), 1),  # percentage
-            'tremor_index': round(random.uniform(0.2, 1.5), 2),  # lower is better
-            'coordination_score': round(random.uniform(75, 95), 1),  # percentage
-            'overall_mobility': round(random.uniform(78, 94), 1)  # percentage
-        }
+        from storage.health_repository import save_health_check
+        from datetime import date
         
-        st.session_state.check_completed = True
-        time.sleep(0.5)
-        st.rerun()
+        # Get analyzed results from session state (would come from video analysis)
+        health_data = st.session_state.get('vision_features', {})
+        
+        if not health_data:
+            st.error("❌ No health data available. Please complete the video recording steps.")
+        else:
+            user_id = st.session_state.get('user_id')
+            if not user_id:
+                st.error("❌ User not authenticated. Please log in again.")
+            else:
+                # Save to database
+                save_result = save_health_check(user_id, health_data, check_date=date.today())
+                
+                if save_result['success']:
+                    st.session_state.analysis_results = health_data
+                    st.session_state.check_completed = True
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error(f"❌ {save_result['message']}")
+                    st.warning("Please ensure the database is properly configured and the health_checks table exists.")
     
     # ========================================
     # RESULTS DISPLAY

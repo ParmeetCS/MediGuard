@@ -4,6 +4,48 @@ User context collection page for personalized health monitoring
 """
 
 import streamlit as st
+from auth.supabase_auth import get_supabase_client
+from datetime import datetime
+
+
+def load_user_profile(user_id: str) -> dict:
+    """Load user profile from Supabase"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return {}
+        
+        response = supabase.table('user_profiles').select('*').eq('user_id', user_id).execute()
+        
+        if response.data and len(response.data) > 0:
+            return response.data[0]
+        return {}
+    except Exception as e:
+        st.error(f"Error loading profile: {str(e)}")
+        return {}
+
+
+def save_user_profile(user_id: str, profile_data: dict) -> tuple[bool, str]:
+    """Save user profile to Supabase"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return False, "Database connection not configured"
+        
+        data = {
+            "user_id": user_id,
+            "name": profile_data.get('name', ''),
+            "age": profile_data.get('age', 25),
+            "lifestyle": profile_data.get('lifestyle', 'Working Professional'),
+            "additional_context": profile_data.get('notes', '')
+        }
+        
+        # Upsert (insert or update)
+        response = supabase.table('user_profiles').upsert(data, on_conflict='user_id').execute()
+        
+        return True, "Profile saved successfully!"
+    except Exception as e:
+        return False, f"Error saving profile: {str(e)}"
 
 
 def show():
@@ -43,19 +85,31 @@ def show():
     st.markdown("<br>", unsafe_allow_html=True)
     
     # ========================================
-    # INITIALIZE SESSION STATE
+    # LOAD EXISTING PROFILE FROM SUPABASE
     # ========================================
-    # Initialize profile fields in session state if they don't exist
+    user_id = st.session_state.get('user_id')
+    
+    if not user_id:
+        st.error("❌ User not authenticated. Please log in.")
+        return
+    
+    # Load existing profile from database
+    existing_profile = load_user_profile(user_id)
+    
+    # ========================================
+    # INITIALIZE SESSION STATE WITH DB DATA
+    # ========================================
+    # Initialize profile fields in session state with database values
     if 'profile_name' not in st.session_state:
-        st.session_state.profile_name = ""
+        st.session_state.profile_name = existing_profile.get('name', '')
     if 'profile_age' not in st.session_state:
-        st.session_state.profile_age = 25
+        st.session_state.profile_age = existing_profile.get('age', 25)
     if 'profile_lifestyle' not in st.session_state:
-        st.session_state.profile_lifestyle = "Working Professional"
+        st.session_state.profile_lifestyle = existing_profile.get('lifestyle', 'Working Professional')
     if 'profile_notes' not in st.session_state:
-        st.session_state.profile_notes = ""
+        st.session_state.profile_notes = existing_profile.get('additional_context', '')
     if 'profile_saved' not in st.session_state:
-        st.session_state.profile_saved = False
+        st.session_state.profile_saved = bool(existing_profile)
     
     # ========================================
     # PROFILE FORM
@@ -170,58 +224,73 @@ def show():
         if not name.strip():
             st.error("❌ Please enter your name before saving.")
         else:
-            # Save to session state
-            st.session_state.profile_name = name
-            st.session_state.profile_age = age
-            st.session_state.profile_lifestyle = lifestyle
-            st.session_state.profile_notes = notes
-            st.session_state.profile_saved = True
+            # Prepare profile data
+            profile_data = {
+                'name': name,
+                'age': age,
+                'lifestyle': lifestyle,
+                'notes': notes
+            }
             
-            # Show success message
-            st.success("✅ Profile saved successfully!")
-            st.balloons()
+            # Save to Supabase
+            with st.spinner("Saving profile to database..."):
+                success, message = save_user_profile(user_id, profile_data)
             
-            # Show summary
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("#### 📋 Profile Summary")
-            
-            summary_col1, summary_col2 = st.columns(2)
-            
-            with summary_col1:
-                st.markdown(f"""
-                    <div style='background: #E3F2FD; padding: 1rem; border-radius: 8px;'>
-                        <p style='margin: 0;'><strong>Name:</strong> {name}</p>
-                        <p style='margin: 0.5rem 0 0 0;'><strong>Age:</strong> {age} years</p>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            with summary_col2:
-                st.markdown(f"""
-                    <div style='background: #E8F5E9; padding: 1rem; border-radius: 8px;'>
-                        <p style='margin: 0;'><strong>Lifestyle:</strong> {lifestyle}</p>
-                        <p style='margin: 0.5rem 0 0 0;'><strong>Notes:</strong> {len(notes)} characters</p>
-                    </div>
-                """, unsafe_allow_html=True)
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # Next steps
-            st.info("""
-            **🎯 What's Next?**
-            
-            Your profile is set up! Now you can:
-            1. 📋 **Log your first daily health check** to start tracking
-            2. 📊 **View your dashboard** once you have some data
-            3. 💬 **Chat with our AI assistant** for personalized insights
-            """)
-            
-            # Quick action button
-            st.markdown("<br>", unsafe_allow_html=True)
-            col1, col2, col3 = st.columns([1, 1, 1])
-            with col2:
-                if st.button("📋 Start Health Check", use_container_width=True):
-                    st.session_state.current_page = "Daily Health Check"
-                    st.rerun()
+            if success:
+                # Also save to session state for immediate use
+                st.session_state.profile_name = name
+                st.session_state.profile_age = age
+                st.session_state.profile_lifestyle = lifestyle
+                st.session_state.profile_notes = notes
+                st.session_state.profile_saved = True
+                
+                # Show success message
+                st.success(f"✅ {message}")
+                st.balloons()
+                
+                # Show summary
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("#### 📋 Profile Summary")
+                
+                summary_col1, summary_col2 = st.columns(2)
+                
+                with summary_col1:
+                    st.markdown(f"""
+                        <div style='background: #E3F2FD; padding: 1rem; border-radius: 8px;'>
+                            <p style='margin: 0;'><strong>Name:</strong> {name}</p>
+                            <p style='margin: 0.5rem 0 0 0;'><strong>Age:</strong> {age} years</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                with summary_col2:
+                    st.markdown(f"""
+                        <div style='background: #E8F5E9; padding: 1rem; border-radius: 8px;'>
+                            <p style='margin: 0;'><strong>Lifestyle:</strong> {lifestyle}</p>
+                            <p style='margin: 0.5rem 0 0 0;'><strong>Notes:</strong> {len(notes)} characters</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # Next steps
+                st.info("""
+                **🎯 What's Next?**
+                
+                Your profile is saved to the database! Now you can:
+                1. 📝 **Add Health Context** for AI analysis
+                2. 📋 **Log your first daily health check** to start tracking
+                3. 💬 **Chat with our AI assistant** for personalized insights
+                """)
+                
+                # Quick action button
+                st.markdown("<br>", unsafe_allow_html=True)
+                col1, col2, col3 = st.columns([1, 1, 1])
+                with col2:
+                    if st.button("📝 Add Health Context", use_container_width=True):
+                        st.session_state.current_page = "Health Context"
+                        st.rerun()
+            else:
+                st.error(f"❌ {message}")
     
     # ========================================
     # SHOW CURRENT PROFILE IF SAVED
@@ -265,11 +334,11 @@ def show():
     # ========================================
     st.markdown("---")
     st.markdown("""
-        <div style='background: #FFF9E6; padding: 1rem; border-radius: 8px; border-left: 4px solid #FFC107;'>
+        <div style='background: #E8F5E9; padding: 1rem; border-radius: 8px; border-left: 4px solid #4CAF50;'>
             <p style='margin: 0; font-size: 0.9rem;'>
-                🔒 <strong>Privacy Note:</strong> Your profile data is currently stored in your session 
-                and will be cleared when you close the app. Future versions will include secure 
-                storage options to persist your data across sessions.
+                🔒 <strong>Privacy & Security:</strong> Your profile data is securely stored in Supabase 
+                with Row Level Security (RLS). Only you can access your own profile data. All data is 
+                encrypted at rest and in transit.
             </p>
         </div>
     """, unsafe_allow_html=True)
