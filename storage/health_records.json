@@ -1,0 +1,25 @@
+{
+    "155b3ef8-af9a-4ea7-8663-79a24248b91f": [
+        {
+            "date": "2025-12-20",
+            "movement_speed": 0.05,
+            "stability": 1.0,
+            "posture_deviation": 0.94,
+            "timestamp": "2025-12-20T18:06:40.879230"
+        },
+        {
+            "date": "2025-12-20",
+            "movement_speed": 0.03,
+            "stability": 1.0,
+            "posture_deviation": 0.74,
+            "timestamp": "2025-12-20T18:22:02.411684"
+        },
+        {
+            "date": "2025-12-20",
+            "movement_speed": 0.04,
+            "stability": 1.0,
+            "posture_deviation": 0.55,
+            "timestamp": "2025-12-20T18:59:55.264738"
+        }
+    ]
+}

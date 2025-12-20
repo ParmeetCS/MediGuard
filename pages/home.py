@@ -79,10 +79,10 @@ def show():
     
     with step1:
         st.markdown("""
-        <div style='background: #E3F2FD; padding: 1.5rem; border-radius: 10px; height: 100%;'>
+        <div style='background: #EFF6FB; padding: 1.5rem; border-radius: 10px; height: 100%; border: 1px solid #D1E7F5;'>
             <h3 style='color: #4A90E2; text-align: center;'>1️⃣</h3>
-            <h4 style='text-align: center;'>Log Daily Data</h4>
-            <p style='text-align: center; font-size: 0.9rem;'>
+            <h4 style='text-align: center; color: #2C5F7F;'>Log Daily Data</h4>
+            <p style='text-align: center; font-size: 0.9rem; color: #555;'>
                 Enter your daily health metrics: weight, blood pressure, sleep, 
                 activity, and how you feel.
             </p>
@@ -91,10 +91,10 @@ def show():
     
     with step2:
         st.markdown("""
-        <div style='background: #E8F5E9; padding: 1.5rem; border-radius: 10px; height: 100%;'>
+        <div style='background: #F0F8F1; padding: 1.5rem; border-radius: 10px; height: 100%; border: 1px solid #D4ECD6;'>
             <h3 style='color: #50C878; text-align: center;'>2️⃣</h3>
-            <h4 style='text-align: center;'>AI Analysis</h4>
-            <p style='text-align: center; font-size: 0.9rem;'>
+            <h4 style='text-align: center; color: #2D6F3E;'>AI Analysis</h4>
+            <p style='text-align: center; font-size: 0.9rem; color: #555;'>
                 Our AI agent analyzes your data, comparing it to your baseline 
                 and detecting subtle patterns.
             </p>
@@ -103,10 +103,10 @@ def show():
     
     with step3:
         st.markdown("""
-        <div style='background: #FFF3E0; padding: 1.5rem; border-radius: 10px; height: 100%;'>
-            <h3 style='color: #FF9800; text-align: center;'>3️⃣</h3>
-            <h4 style='text-align: center;'>Get Insights</h4>
-            <p style='text-align: center; font-size: 0.9rem;'>
+        <div style='background: #FBF5ED; padding: 1.5rem; border-radius: 10px; height: 100%; border: 1px solid #F0E0C8;'>
+            <h3 style='color: #E67E22; text-align: center;'>3️⃣</h3>
+            <h4 style='text-align: center; color: #8B5A00;'>Get Insights</h4>
+            <p style='text-align: center; font-size: 0.9rem; color: #555;'>
                 Receive personalized alerts about drifts, trends, and 
                 correlations in your health data.
             </p>
@@ -115,10 +115,10 @@ def show():
     
     with step4:
         st.markdown("""
-        <div style='background: #F3E5F5; padding: 1.5rem; border-radius: 10px; height: 100%;'>
+        <div style='background: #F7F2F8; padding: 1.5rem; border-radius: 10px; height: 100%; border: 1px solid #E8D9ED;'>
             <h3 style='color: #9C27B0; text-align: center;'>4️⃣</h3>
-            <h4 style='text-align: center;'>Take Action</h4>
-            <p style='text-align: center; font-size: 0.9rem;'>
+            <h4 style='text-align: center; color: #6B1B7F;'>Take Action</h4>
+            <p style='text-align: center; font-size: 0.9rem; color: #555;'>
                 Use insights to make informed decisions and discuss 
                 findings with your healthcare provider.
             </p>

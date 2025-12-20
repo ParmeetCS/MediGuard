@@ -1,0 +1,6 @@
+# MediGuard Drift AI - Requirements
+streamlit
+pandas
+plotly
+python-dotenv
+supabase
