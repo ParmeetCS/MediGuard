@@ -25,12 +25,35 @@ def get_ai_response(user_message):
     """
     Generate intelligent-sounding responses based on user input
     Uses pattern matching with predefined but contextual responses
+    Enhanced to fetch real user health data when available
     """
     message_lower = user_message.lower()
     
     # Get user profile data if available
     user_name = st.session_state.get('profile_name', 'there')
     has_check_data = st.session_state.get('check_completed', False)
+    user_id = st.session_state.get('user_id', None)
+    
+    # Try to fetch real health data if user is logged in
+    real_health_data = None
+    health_summary = None
+    if user_id:
+        try:
+            real_health_data = get_user_health_data(user_id, days=14)
+            if real_health_data['success'] and real_health_data['health_checks']:
+                has_check_data = True
+                latest = real_health_data['health_checks'][-1]
+                health_summary = {
+                    'total_checks': len(real_health_data['health_checks']),
+                    'latest_date': latest.get('check_date'),
+                    'movement_speed': latest.get('avg_movement_speed', 'N/A'),
+                    'stability': latest.get('avg_stability', 'N/A'),
+                    'sit_stand_speed': latest.get('sit_stand_movement_speed', 'N/A'),
+                    'walk_stability': latest.get('walk_stability', 'N/A'),
+                    'hand_steadiness': latest.get('steady_stability', 'N/A')
+                }
+        except Exception as e:
+            print(f"Could not fetch health data: {e}")
     
     # Pattern matching for different types of questions
     
@@ -45,7 +68,39 @@ def get_ai_response(user_message):
     
     # Stability/balance questions
     elif any(word in message_lower for word in ['stability', 'balance', 'stable', 'steadiness']):
-        if has_check_data:
+        if has_check_data and health_summary:
+            # Use real data
+            stability_val = health_summary['stability']
+            stability_str = f"{stability_val:.3f}" if stability_val != 'N/A' else "Not recorded"
+            checks_count = health_summary['total_checks']
+            
+            return f"""Based on your actual health data, {user_name}:
+
+**Your Stability Metrics:**
+- Current Stability Score: {stability_str}
+- Total Health Checks: {checks_count} days of tracking
+- Latest Check: {health_summary['latest_date']}
+
+**What I'm analyzing:**
+Your stability score reflects your balance and steadiness during movement activities. 
+{f"With a score of {stability_val:.3f}, you're " + ("in a healthy range!" if stability_val >= 0.85 else "showing some variation that we should monitor.") if stability_val != 'N/A' else ""}
+
+**Personalized Context:**
+- I'm tracking {checks_count} days of your health data
+- This gives me insight into YOUR unique patterns
+- Looking for gradual changes over time, not daily fluctuations
+
+**My observations:**
+{f"Your hand steadiness is at {health_summary['hand_steadiness']:.3f}, showing good fine motor control!" if health_summary.get('hand_steadiness') != 'N/A' else "Complete more checks to see full metrics."}
+
+**What you can do:**
+- Continue daily checks for consistent tracking
+- Balance exercises: yoga, standing on one foot, tai chi
+- Stay hydrated and get adequate sleep
+- Discuss any concerns with your healthcare provider
+
+Want to know about other specific metrics from your {checks_count} days of data?"""
+        elif has_check_data:
             return f"""Based on your recent health checks, I've noticed some interesting patterns in your stability metrics, {user_name}.
 
 **What I'm seeing:**
@@ -69,7 +124,47 @@ Would you like specific exercise suggestions for improving balance?"""
     
     # Movement/mobility questions
     elif any(word in message_lower for word in ['movement', 'mobility', 'move', 'speed', 'walk']):
-        if has_check_data:
+        if has_check_data and health_summary:
+            # Use real data
+            movement_val = health_summary['movement_speed']
+            movement_str = f"{movement_val:.3f}" if movement_val != 'N/A' else "Not recorded"
+            walk_val = health_summary['walk_stability']
+            walk_str = f"{walk_val:.3f}" if walk_val != 'N/A' else "Not recorded"
+            
+            sit_stand_val = health_summary['sit_stand_speed']
+            sit_stand_str = f"{sit_stand_val:.3f}" if sit_stand_val != 'N/A' else "Not recorded"
+            
+            return f"""Great question about mobility, {user_name}! Here's what your actual data shows:
+
+**Your Movement Metrics:**
+- Average Movement Speed: {movement_str}
+- Walking Stability: {walk_str}
+- Sit-Stand Speed: {sit_stand_str}
+- Days of Data: {health_summary['total_checks']} health checks
+
+**What Your Numbers Mean:**
+Movement speed reflects how quickly and efficiently you can perform daily movements.
+{f"Your current speed of {movement_val:.3f} " + ("shows good mobility!" if movement_val >= 0.9 else "is something we're monitoring.") if movement_val != 'N/A' else ""}
+
+**Context Matters:**
+- Time of day affects energy and performance
+- Recent activity impacts your metrics
+- {health_summary['total_checks']} days of data helps establish YOUR normal baseline
+
+**Personalized Insights:**
+The AI tracks multiple factors together:
+- Movement speed AND stability (not just one metric)
+- Trends over time (not isolated data points)
+- YOUR baseline (not comparing you to others)
+
+**What you can do:**
+- Keep logging daily for consistency
+- Regular walking (15-20 minutes helps)
+- Stay active throughout the day
+- Note any lifestyle changes affecting your patterns
+
+Anything specific about your {health_summary['total_checks']} days of movement data you want to explore?"""
+        elif has_check_data:
             return f"""Great question about mobility, {user_name}! Let me break down what your movement data tells us.
 
 **Current Status:**
@@ -149,6 +244,65 @@ Is there something about your health *trends* (not symptoms) I can help clarify?
     
     # Questions about recommendations or what to do
     elif any(word in message_lower for word in ['should i', 'what should', 'recommend', 'advice', 'help', 'improve']):
+        if has_check_data and health_summary:
+            # Use real health data for personalized recommendations
+            context_data = real_health_data.get('context_data', {}) if real_health_data else {}
+            
+            # Pre-format metric values to avoid nested f-string issues
+            movement_speed_str = f"{health_summary['movement_speed']:.3f}" if health_summary['movement_speed'] != 'N/A' else 'Not recorded'
+            stability_str = f"{health_summary['stability']:.3f}" if health_summary['stability'] != 'N/A' else 'Not recorded'
+            hand_steadiness_str = f"{health_summary['hand_steadiness']:.3f}" if health_summary['hand_steadiness'] != 'N/A' else 'Not recorded'
+            
+            # Build metric-based suggestions
+            movement_advice = ""
+            if health_summary['movement_speed'] != 'N/A':
+                movement_advice = f"- Your movement speed is {movement_speed_str} - " + ("keep up the good work!" if health_summary['movement_speed'] >= 0.9 else "consider daily walks to improve")
+            else:
+                movement_advice = "- Complete more checks to see trends"
+            
+            stability_advice = ""
+            if health_summary['stability'] != 'N/A':
+                stability_advice = f"- Stability at {stability_str} - " + ("great balance!" if health_summary['stability'] >= 0.85 else "try balance exercises like yoga")
+            else:
+                stability_advice = "- Track consistently to monitor stability"
+            
+            return f"""I'm happy to share personalized suggestions based on your actual health data, {user_name}! 
+
+**Your Current Health Status:**
+- Total Days Tracked: {health_summary['total_checks']} health checks ✅
+- Latest Check: {health_summary['latest_date']}
+- Movement Speed: {movement_speed_str}
+- Stability Score: {stability_str}
+- Hand Steadiness: {hand_steadiness_str}
+
+**Personalized Recommendations:**
+
+1. **Continue Daily Tracking** 📊
+   - You have {health_summary['total_checks']} days of data - excellent consistency!
+   - Daily checks help me detect gradual patterns
+   - Try to check at the same time each day
+
+2. **Lifestyle Factors** 🌟
+   {f"- Sleep: {context_data.get('sleep_hours', 'N/A')} hours/night (aim for 7-9)" if context_data.get('sleep_hours') else "- Add your sleep data in Context Inputs for better insights"}
+   {f"- Stress: {context_data.get('stress_level', 'N/A')} - manage with relaxation techniques" if context_data.get('stress_level') else "- Track your stress levels for better analysis"}
+   {f"- Activity: {context_data.get('activity_level', 'N/A')} - keep moving!" if context_data.get('activity_level') else "- Log your activity level for personalized advice"}
+
+3. **Based on Your Metrics:**
+   {movement_advice}
+   {stability_advice}
+
+4. **General Wellness:**
+   - Regular walking: 20-30 minutes daily
+   - Balance exercises: stand on one foot, yoga, tai chi
+   - Stay hydrated throughout the day
+   - Stretch regularly, especially after sitting
+
+**Most Important:**
+These suggestions are based on YOUR {health_summary['total_checks']} days of data and general wellness principles. 
+For personalized medical guidance, always consult your healthcare provider!
+
+What specific area would you like to focus on improving?"""
+        
         return f"""I'm happy to share general wellness suggestions based on your health trends, {user_name}! 
 
 **Based on Your Recent Data:**
@@ -218,29 +372,61 @@ My goal? Help you stay aware of your health patterns so you can take preventive 
 Anything specific about my capabilities you'd like to know?"""
     
     # Profile/personal questions
-    elif any(word in message_lower for word in ['my profile', 'about me', 'my data', 'my info']):
-        name = st.session_state.get('profile_name', 'Not set')
-        age = st.session_state.get('profile_age', 'Not set')
-        lifestyle = st.session_state.get('profile_lifestyle', 'Not set')
+    elif any(word in message_lower for word in ['my profile', 'about me', 'my data', 'my info', 'my health']):
+        # Get profile data
+        profile_data = real_health_data.get('profile', {}) if real_health_data else {}
+        context_data = real_health_data.get('context_data', {}) if real_health_data else {}
         
-        return f"""Here's what I know about you, {user_name}:
-
-**Your Profile:**
-- **Name**: {name}
-- **Age**: {age}
-- **Lifestyle**: {lifestyle}
-
-**Your Health Tracking:**
-- **Daily Checks Completed**: {"Yes! Great consistency!" if has_check_data else "Not yet—start your first check!"}
-- **Days of Data**: ~14 days (in demo mode)
-- **Baseline Established**: Yes (first 5 days)
-
-**How I Use This:**
-- Your age helps me set appropriate health baselines
-- Your lifestyle gives context (e.g., "Active/Athlete" has different movement expectations)
-- The more data you provide, the better I can personalize insights
-
-Want to update your profile? Head to the Profile page! Or ask me anything about your health trends."""
+        name = profile_data.get('name', st.session_state.get('profile_name', 'Not set'))
+        age = profile_data.get('age', st.session_state.get('profile_age', 'Not set'))
+        lifestyle = profile_data.get('lifestyle', st.session_state.get('profile_lifestyle', 'Not set'))
+        
+        response = f"""Here's your complete health profile, {user_name}:\n\n"""
+        
+        response += "**Personal Information:**\n"
+        response += f"- **Name**: {name}\n"
+        response += f"- **Age**: {age}\n"
+        response += f"- **Lifestyle**: {lifestyle}\n\n"
+        
+        if health_summary:
+            response += "**Health Tracking:**\n"
+            response += f"- **Total Health Checks**: {health_summary['total_checks']} days ✅\n"
+            response += f"- **Latest Check**: {health_summary['latest_date']}\n"
+            response += f"- **Data Quality**: {'Excellent - keep it up!' if health_summary['total_checks'] >= 7 else 'Good start - more data helps!'}\n\n"
+            
+            response += "**Current Metrics:**\n"
+            if health_summary['movement_speed'] != 'N/A':
+                response += f"- Movement Speed: {health_summary['movement_speed']:.3f}\n"
+            if health_summary['stability'] != 'N/A':
+                response += f"- Stability Score: {health_summary['stability']:.3f}\n"
+            if health_summary['hand_steadiness'] != 'N/A':
+                response += f"- Hand Steadiness: {health_summary['hand_steadiness']:.3f}\n"
+            response += "\n"
+        else:
+            response += "**Health Tracking:**\n"
+            response += "- **Daily Checks**: Not yet started\n"
+            response += "- Start your first check to see metrics!\n\n"
+        
+        if context_data:
+            response += "**Lifestyle Context:**\n"
+            if context_data.get('sleep_hours'):
+                response += f"- Sleep: {context_data.get('sleep_hours')} hours/night\n"
+            if context_data.get('stress_level'):
+                response += f"- Stress Level: {context_data.get('stress_level')}\n"
+            if context_data.get('activity_level'):
+                response += f"- Activity Level: {context_data.get('activity_level')}\n"
+            if context_data.get('workload'):
+                response += f"- Workload: {context_data.get('workload')}\n"
+            response += "\n"
+        
+        response += "**How I Use This:**\n"
+        response += "- Your age helps set appropriate health baselines\n"
+        response += "- Lifestyle gives context for movement expectations\n"
+        response += f"- {health_summary['total_checks'] if health_summary else 0} days of data lets me personalize insights\n"
+        response += "- The more data you provide, the better my analysis!\n\n"
+        response += "Want to update your profile or add lifestyle context? Head to the Profile or Context Inputs page!"
+        
+        return response
     
     # Thank you / goodbye
     elif any(word in message_lower for word in ['thank', 'thanks', 'bye', 'goodbye']):
@@ -271,27 +457,292 @@ Want to update your profile? Head to the Profile page! Or ask me anything about 
 Feel free to rephrase your question or ask something specific about your health data!"""
 
 
+def generate_data_driven_response(user_message: str, health_summary: dict, health_data: dict) -> str:
+    """
+    Generate response based on actual health data when full AI analysis isn't available
+    """
+    from agents.ai_integration import rate_metric_value
+    
+    message_lower = user_message.lower()
+    
+    # Get context data if available
+    context = health_data.get('context_data', {})
+    profile = health_data.get('profile', {})
+    
+    user_name = profile.get('name', 'there')
+    
+    # Check for specific health questions
+    if any(word in message_lower for word in ['stability', 'balance', 'stable']):
+        stability_val = health_summary.get('stability', 'N/A')
+        
+        # Get rating if value exists
+        rating_info = None
+        if stability_val != 'N/A':
+            rating_info = rate_metric_value('stability', stability_val)
+        
+        response = f"""Based on your actual health data, {user_name}:\n\n"""
+        response += f"**Your Stability Score:**\n"
+        if stability_val != 'N/A' and rating_info:
+            response += f"{rating_info['emoji']} **{stability_val:.3f}** - {rating_info['rating']}\n"
+            response += f"_{rating_info['description']}_\n\n"
+        else:
+            response += f"Not recorded yet\n\n"
+        
+        response += f"**Tracking Info:**\n"
+        response += f"- Total Health Checks: {health_summary['total_checks']} days\n"
+        response += f"- Latest Check: {health_summary['latest_date']}\n\n"
+        
+        if context.get('sleep_hours') or context.get('stress_level'):
+            response += f"**Your Lifestyle:**\n"
+            if context.get('sleep_hours'):
+                response += f"- Sleep: {context.get('sleep_hours')} hours per night\n"
+            if context.get('stress_level'):
+                response += f"- Stress: {context.get('stress_level')}\n"
+            if context.get('activity_level'):
+                response += f"- Activity: {context.get('activity_level')}\n"
+            response += "\n"
+        
+        response += f"**What You Can Do:**\n"
+        response += f"- Keep tracking daily for better insights\n"
+        response += f"- Try balance exercises like yoga or standing on one foot\n"
+        response += f"- Get enough sleep and manage stress\n"
+        response += f"- Talk to your doctor if you're concerned\n"
+        
+        return response
+    
+    elif any(word in message_lower for word in ['movement', 'mobility', 'speed', 'walk']):
+        from agents.ai_integration import rate_metric_value
+        
+        movement_val = health_summary.get('movement_speed', 'N/A')
+        walk_val = health_summary.get('walk_stability', 'N/A')
+        sit_stand_val = health_summary.get('sit_stand_speed', 'N/A')
+        
+        # Get ratings
+        movement_rating = rate_metric_value('movement_speed', movement_val) if movement_val != 'N/A' else None
+        walk_rating = rate_metric_value('walk_stability', walk_val) if walk_val != 'N/A' else None
+        sit_rating = rate_metric_value('sit_stand_speed', sit_stand_val) if sit_stand_val != 'N/A' else None
+        
+        response = f"""Here's what your movement data shows, {user_name}:\n\n"""
+        
+        response += f"**Your Movement Scores:**\n\n"
+        
+        if movement_val != 'N/A' and movement_rating:
+            response += f"{movement_rating['emoji']} **Movement Speed: {movement_val:.3f}** - {movement_rating['rating']}\n"
+            response += f"   _{movement_rating['description']}_\n\n"
+        
+        if sit_stand_val != 'N/A' and sit_rating:
+            response += f"{sit_rating['emoji']} **Sit-Stand Speed: {sit_stand_val:.3f}** - {sit_rating['rating']}\n"
+            response += f"   _{sit_rating['description']}_\n\n"
+        
+        if walk_val != 'N/A' and walk_rating:
+            response += f"{walk_rating['emoji']} **Walking Stability: {walk_val:.3f}** - {walk_rating['rating']}\n"
+            response += f"   _{walk_rating['description']}_\n\n"
+        
+        response += f"**Tracking:**\n"
+        response += f"- Total Days: {health_summary['total_checks']}\n"
+        response += f"- Latest Check: {health_summary['latest_date']}\n\n"
+        
+        if profile.get('age'):
+            response += f"**Your Profile:**\n"
+            response += f"- Age: {profile.get('age')}\n"
+            if context.get('activity_level'):
+                response += f"- Activity Level: {context.get('activity_level')}\n"
+            response += "\n"
+        
+        response += f"**Tips to Improve:**\n"
+        response += f"- Walk regularly (15-20 minutes daily)\n"
+        response += f"- Stretch before and after activities\n"
+        response += f"- Stay hydrated\n"
+        response += f"- Keep tracking to see your progress!\n"
+        
+        return response
+    
+    elif any(word in message_lower for word in ['suggest', 'recommend', 'improve', 'help', 'advice']):
+        return f"""Based on your {health_summary['total_checks']} days of health tracking, {user_name}:
+
+**Your Current Status:**
+- Movement Speed: {health_summary.get('movement_speed', 'N/A')}
+- Stability: {health_summary.get('stability', 'N/A')}
+- Hand Steadiness: {health_summary.get('hand_steadiness', 'N/A')}
+
+**Personalized Suggestions:**
+
+1. **Keep Up Your Consistency** ✅
+   - You have {health_summary['total_checks']} health checks recorded
+   - Daily tracking helps identify patterns early
+
+2. **Lifestyle Optimization** 🌟
+   {'- Your sleep: ' + str(context.get('sleep_hours', 'N/A')) + ' hours (aim for 7-9 hours)' if context.get('sleep_hours') else '- Add your sleep data in Context Inputs for better insights'}
+   {'- Stress level: ' + context.get('stress_level', 'N/A') + ' - consider relaxation techniques' if context.get('stress_level') else ''}
+
+3. **Physical Activity** 🏃
+   - Balance exercises: Stand on one foot, yoga poses
+   - Walking: 20-30 minutes daily
+   - Stretching: Before bed and after waking
+
+4. **Monitoring** 📊
+   - Continue daily checks at the same time
+   - Note any significant life changes
+   - Watch for gradual trends, not daily variations
+
+**Remember:** These are general wellness suggestions. Always consult your healthcare provider for medical advice!
+
+What specific area would you like to focus on?"""
+    
+    else:
+        # Generic response with user's data
+        return f"""I have access to your health data, {user_name}! Here's what I'm tracking:
+
+**Your Health Summary:**
+- **Days of Data:** {health_summary['total_checks']} health checks
+- **Latest Check:** {health_summary['latest_date']}
+- **Movement Speed:** {health_summary.get('movement_speed', 'Not recorded')}
+- **Stability:** {health_summary.get('stability', 'Not recorded')}
+- **Hand Steadiness:** {health_summary.get('hand_steadiness', 'Not recorded')}
+
+**What I can help with:**
+- 📊 Analyze your specific metrics (stability, movement, balance)
+- 📈 Track trends over time
+- 💡 Provide personalized wellness suggestions
+- 🎯 Answer questions about your health patterns
+
+**Try asking:**
+- "How is my stability trending?"
+- "What can I do to improve my movement?"
+- "Show me my health progress"
+- "What does my data suggest?"
+
+What would you like to know about your health data?"""
+
+
 def get_ai_powered_response(user_id: str, user_message: str) -> str:
     """
-    Get AI-powered response using real ADK integration
-    Falls back to pattern matching if ADK unavailable
+    Get AI-powered response using Google Gemini API with full health context
+    Always has access to user's complete health data
     """
-    if not ADK_AVAILABLE or not is_adk_ready():
-        # Fall back to pattern matching
-        return get_ai_response(user_message)
+    from agents.adk_runtime import run_agent
     
     try:
-        # Use AI integration for real analysis
-        analyzer = AIHealthAnalyzer()
-        result = analyzer.get_conversational_response(user_id, user_message)
+        # Fetch user's complete health data from Supabase
+        health_data = get_user_health_data(user_id, days=14)
+        
+        # Build comprehensive health context
+        health_context = "**USER HEALTH DATA:**\n\n"
+        
+        if health_data['success'] and health_data.get('health_checks'):
+            # Latest health metrics
+            latest_check = health_data['health_checks'][-1]
+            total_checks = len(health_data['health_checks'])
+            
+            health_context += f"Total Health Checks: {total_checks} days of tracking\n"
+            health_context += f"Latest Check Date: {latest_check.get('check_date')}\n\n"
+            
+            health_context += "**Current Health Scores:**\n"
+            from agents.ai_integration import rate_metric_value
+            
+            # Movement Speed
+            if latest_check.get('avg_movement_speed'):
+                val = latest_check['avg_movement_speed']
+                rating = rate_metric_value('movement_speed', val)
+                health_context += f"- Movement Speed: {val:.3f} ({rating['emoji']} {rating['rating']} - {rating['description']})\n"
+            
+            # Stability
+            if latest_check.get('avg_stability'):
+                val = latest_check['avg_stability']
+                rating = rate_metric_value('stability', val)
+                health_context += f"- Stability/Balance: {val:.3f} ({rating['emoji']} {rating['rating']} - {rating['description']})\n"
+            
+            # Sit-Stand Speed
+            if latest_check.get('sit_stand_movement_speed'):
+                val = latest_check['sit_stand_movement_speed']
+                rating = rate_metric_value('sit_stand_speed', val)
+                health_context += f"- Sit-Stand Speed: {val:.3f} ({rating['emoji']} {rating['rating']} - {rating['description']})\n"
+            
+            # Hand Steadiness
+            if latest_check.get('steady_stability'):
+                val = latest_check['steady_stability']
+                rating = rate_metric_value('stability', val)
+                health_context += f"- Hand Steadiness: {val:.3f} ({rating['emoji']} {rating['rating']} - {rating['description']})\n"
+            
+            # Trend analysis (if we have multiple checks)
+            if total_checks >= 2:
+                health_context += f"\n**Recent Trends (last {min(7, total_checks)} days):**\n"
+                recent_checks = health_data['health_checks'][-7:]
+                
+                # Calculate averages
+                if any(c.get('avg_movement_speed') for c in recent_checks):
+                    avg_movement = sum(c.get('avg_movement_speed', 0) for c in recent_checks) / len(recent_checks)
+                    health_context += f"- Average Movement Speed: {avg_movement:.3f}\n"
+                
+                if any(c.get('avg_stability') for c in recent_checks):
+                    avg_stability = sum(c.get('avg_stability', 0) for c in recent_checks) / len(recent_checks)
+                    health_context += f"- Average Stability: {avg_stability:.3f}\n"
+        
+        else:
+            health_context += "No health check data available yet. User needs to complete daily health checks.\n"
+        
+        # Add lifestyle context
+        if health_data.get('context_data'):
+            context = health_data['context_data']
+            health_context += "\n**Lifestyle Information:**\n"
+            if context.get('sleep_hours'):
+                health_context += f"- Sleep: {context['sleep_hours']} hours per night\n"
+            if context.get('stress_level'):
+                health_context += f"- Stress Level: {context['stress_level']}\n"
+            if context.get('activity_level'):
+                health_context += f"- Activity Level: {context['activity_level']}\n"
+            if context.get('workload'):
+                health_context += f"- Workload: {context['workload']}\n"
+        
+        # Add profile info
+        if health_data.get('profile'):
+            profile = health_data['profile']
+            health_context += "\n**User Profile:**\n"
+            if profile.get('name'):
+                health_context += f"- Name: {profile['name']}\n"
+            if profile.get('age'):
+                health_context += f"- Age: {profile['age']}\n"
+            if profile.get('lifestyle'):
+                health_context += f"- Lifestyle: {profile['lifestyle']}\n"
+        
+        # Create comprehensive prompt for Gemini
+        system_prompt = """You are a friendly, caring health assistant chatting with a user about their health. 
+You have access to their complete health data below.
+
+KEY RULES:
+1. Talk like a caring local doctor - simple, warm, friendly language
+2. NO technical jargon - explain everything in plain English
+3. NO decimal numbers - say "pretty good" not "0.87"
+4. Reference their ACTUAL health data when relevant
+5. Give practical, simple suggestions they can do at home
+6. Always say "talk to your doctor if you're worried" for medical concerns
+7. NEVER diagnose diseases or give medical advice
+8. Be encouraging and supportive
+
+When they ask about their health, refer to their actual scores and ratings.
+When giving suggestions, make them specific and actionable.
+Keep responses conversational and friendly."""
+
+        full_prompt = f"""{system_prompt}
+
+{health_context}
+
+**User Question:** {user_message}
+
+**Your Response (as a caring health assistant):**"""
+        
+        # Get response from Gemini
+        result = run_agent(full_prompt)
         
         if result['success']:
             return result['response']
         else:
-            # Fallback to pattern matching
+            # Fallback to pattern matching if Gemini fails
             return get_ai_response(user_message)
+            
     except Exception as e:
         print(f"AI response error: {e}")
+        # Fall back to pattern matching
         return get_ai_response(user_message)
 
 
@@ -431,23 +882,68 @@ def show():
                         
                         # Summary
                         summary = result['summary']
-                        st.markdown("### 📊 Analysis Summary")
+                        st.markdown("### 📊 Your Health Scores")
                         
+                        # Display ratings with visual indicators
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            baseline_rating = summary.get('baseline_rating', {})
+                            if baseline_rating:
+                                st.markdown(f"""
+                                <div style='background: {baseline_rating.get('color', '#gray')}20; padding: 1rem; border-radius: 8px; border-left: 4px solid {baseline_rating.get('color', '#gray')}'>
+                                    <h4 style='margin:0;'>{baseline_rating.get('emoji', '')} Your Baseline</h4>
+                                    <h2 style='margin:0.5rem 0;'>{summary.get('baseline_value', 'N/A')}</h2>
+                                    <p style='margin:0; font-size: 1.1rem;'><strong>{baseline_rating.get('rating', '')}</strong></p>
+                                    <p style='margin:0; font-size: 0.9rem; color: #666;'>{baseline_rating.get('description', '')}</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        with col2:
+                            recent_rating = summary.get('recent_rating', {})
+                            if recent_rating:
+                                st.markdown(f"""
+                                <div style='background: {recent_rating.get('color', '#gray')}20; padding: 1rem; border-radius: 8px; border-left: 4px solid {recent_rating.get('color', '#gray')}'>
+                                    <h4 style='margin:0;'>{recent_rating.get('emoji', '')} Current Score</h4>
+                                    <h2 style='margin:0.5rem 0;'>{summary.get('recent_value', 'N/A')}</h2>
+                                    <p style='margin:0; font-size: 1.1rem;'><strong>{recent_rating.get('rating', '')}</strong></p>
+                                    <p style='margin:0; font-size: 0.9rem; color: #666;'>{recent_rating.get('description', '')}</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        with col3:
+                            drift_pct = summary.get('drift_percentage', 0)
+                            drift_color = '#FF9800' if abs(drift_pct) > 5 else '#FFC107' if abs(drift_pct) > 3 else '#4CAF50'
+                            drift_icon = '⬇️' if drift_pct < 0 else '⬆️' if drift_pct > 0 else '➡️'
+                            st.markdown(f"""
+                            <div style='background: {drift_color}20; padding: 1rem; border-radius: 8px; border-left: 4px solid {drift_color}'>
+                                <h4 style='margin:0;'>{drift_icon} Change</h4>
+                                <h2 style='margin:0.5rem 0;'>{drift_pct:+.1f}%</h2>
+                                <p style='margin:0; font-size: 1.1rem;'><strong>{summary.get('trend', 'Stable').title()}</strong></p>
+                                <p style='margin:0; font-size: 0.9rem; color: #666;'>From your baseline</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        
+                        # Additional summary info
                         col1, col2 = st.columns([2, 1])
                         
                         with col1:
                             st.markdown(f"""
-                            **Analyzed Period:** Last {days_to_analyze} days  
-                            **Health Checks:** {len(health_data['health_checks'])}  
-                            **Drift Detected:** {summary.get('severity', 'None').title()}  
-                            **Risk Level:** {summary.get('risk_level', 'Low').title()}  
+                            **Metric:** {summary.get('metric_name', 'Movement Speed')}  
+                            **Period:** Last {days_to_analyze} days  
+                            **Health Checks:** {len(health_data['health_checks'])} days tracked  
+                            **Severity:** {summary.get('severity', 'None').title()}  
                             """)
                         
                         with col2:
                             if summary.get('escalation_needed'):
-                                st.error("⚠️ Escalation Recommended")
+                                st.error("⚠️ Doctor Visit Suggested")
                             else:
-                                st.success("✅ No Immediate Concerns")
+                                st.success("✅ Looking Good")
+                        
+                        st.markdown("---")
                         
                         # Agent-by-agent analysis
                         st.markdown("### 🤖 Agent Analysis Results")
@@ -483,9 +979,203 @@ def show():
                                 for i, rec in enumerate(result['recommendations'], 1):
                                     st.markdown(f"**{i}.** {rec}")
                         
-                        # Full analysis details
-                        with st.expander("📋 View Complete AI Report"):
-                            st.json(result)
+                        # Full analysis details - Beautiful User-Friendly Format
+                        with st.expander("📋 View Complete AI Health Report", expanded=False):
+                            st.markdown("### 📊 Your Comprehensive Health Analysis")
+                            
+                            # Get analysis data
+                            analysis = result.get('analysis', {})
+                            summary = result.get('summary', {})
+                            
+                            # 1. Overview Section
+                            st.markdown("---")
+                            st.markdown("#### 📈 Health Pattern Overview")
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric(
+                                    label="Metric Analyzed",
+                                    value=summary.get('metric_name', 'N/A')
+                                )
+                            with col2:
+                                drift_pct = summary.get('drift_percentage', 0)
+                                st.metric(
+                                    label="Change Detected",
+                                    value=f"{drift_pct:+.1f}%",
+                                    delta=f"{abs(drift_pct):.1f}% from baseline"
+                                )
+                            with col3:
+                                severity = summary.get('severity', 'unknown').title()
+                                severity_color = {
+                                    'Low': '🟢',
+                                    'Moderate': '🟡',
+                                    'High': '🟠',
+                                    'Unknown': '⚪'
+                                }.get(severity, '⚪')
+                                st.metric(
+                                    label="Severity Level",
+                                    value=f"{severity_color} {severity}"
+                                )
+                            
+                            # 2. Drift Analysis Section
+                            st.markdown("---")
+                            st.markdown("#### 🔍 Drift Pattern Analysis")
+                            
+                            drift_summary = analysis.get('drift_summary', {})
+                            if drift_summary.get('success'):
+                                if drift_summary.get('explanation'):
+                                    st.success("✅ Pattern Analysis Complete")
+                                    st.markdown(drift_summary['explanation'])
+                                
+                                if drift_summary.get('factors'):
+                                    st.markdown("**🎯 Contributing Factors:**")
+                                    for factor in drift_summary.get('factors', []):
+                                        st.markdown(f"- {factor}")
+                                
+                                if drift_summary.get('recommendations'):
+                                    st.markdown("**💡 Drift-Specific Recommendations:**")
+                                    for rec in drift_summary.get('recommendations', []):
+                                        st.markdown(f"- {rec}")
+                            else:
+                                st.warning(f"⚠️ Drift analysis unavailable: {drift_summary.get('error', 'Unknown error')}")
+                            
+                            # 3. Contextual Analysis Section
+                            st.markdown("---")
+                            st.markdown("#### 🌟 Lifestyle Context Analysis")
+                            
+                            context = analysis.get('contextual_explanation', {})
+                            if context.get('success'):
+                                st.success("✅ Context Analysis Complete")
+                                
+                                if context.get('contextual_explanation'):
+                                    st.markdown("**Understanding Your Pattern:**")
+                                    st.info(context['contextual_explanation'])
+                                
+                                if context.get('possible_factors'):
+                                    st.markdown("**🔗 Possible Lifestyle Connections:**")
+                                    for factor in context.get('possible_factors', []):
+                                        st.markdown(f"- {factor}")
+                                
+                                confidence = context.get('confidence_level', 0)
+                                st.progress(confidence, text=f"Analysis Confidence: {confidence*100:.0f}%")
+                            else:
+                                st.warning(f"⚠️ Context analysis unavailable: {context.get('error', 'Unknown error')}")
+                            
+                            # 4. Risk Assessment Section
+                            st.markdown("---")
+                            st.markdown("#### ⚖️ Risk Assessment Over Time")
+                            
+                            risk = analysis.get('risk_assessment', {})
+                            if risk.get('success'):
+                                st.success("✅ Risk Assessment Complete")
+                                
+                                risk_level = risk.get('risk_level', 'unknown')
+                                risk_emoji = {
+                                    'temporary': '🟢',
+                                    'needs_observation': '🟡',
+                                    'potentially_concerning': '🟠'
+                                }.get(risk_level, '⚪')
+                                
+                                risk_col1, risk_col2, risk_col3 = st.columns(3)
+                                with risk_col1:
+                                    st.metric("Risk Level", f"{risk_emoji} {risk_level.replace('_', ' ').title()}")
+                                with risk_col2:
+                                    st.metric("Days Observed", risk.get('days_observed', 0))
+                                with risk_col3:
+                                    confidence = risk.get('confidence_score', 0)
+                                    st.metric("Confidence", f"{confidence*100:.0f}%")
+                                
+                                if risk.get('reasoning'):
+                                    st.markdown("**📝 Risk Reasoning:**")
+                                    st.info(risk['reasoning'])
+                                
+                                if risk.get('trend_description'):
+                                    st.markdown(f"**📉 Trend:** {risk['trend_description']}")
+                                
+                                if risk.get('recommendations'):
+                                    st.markdown("**💡 Risk-Based Recommendations:**")
+                                    for rec in risk.get('recommendations', []):
+                                        st.markdown(f"- {rec}")
+                            else:
+                                st.warning(f"⚠️ Risk assessment unavailable: {risk.get('error', 'Unknown error')}")
+                            
+                            # 5. Safety Notice Section
+                            st.markdown("---")
+                            st.markdown("#### 🛡️ Safety Evaluation")
+                            
+                            safety = analysis.get('safety_notice', {})
+                            if safety.get('success'):
+                                escalation = safety.get('escalation_required', False)
+                                urgency = safety.get('urgency_level', 'routine')
+                                
+                                if escalation:
+                                    st.warning("⚠️ Professional Consultation Recommended")
+                                    urgency_emoji = {
+                                        'routine': '📅',
+                                        'prompt': '⏰',
+                                        'urgent': '🚨'
+                                    }.get(urgency, '📋')
+                                    st.markdown(f"**{urgency_emoji} Urgency Level:** {urgency.title()}")
+                                else:
+                                    st.success("✅ Pattern Within Monitoring Range")
+                                
+                                if safety.get('safety_message'):
+                                    st.info(safety['safety_message'])
+                                
+                                if safety.get('rationale'):
+                                    with st.expander("📖 Safety Rationale"):
+                                        st.markdown(safety['rationale'])
+                                
+                                if safety.get('next_steps'):
+                                    st.markdown("**👣 Next Steps:**")
+                                    for step in safety.get('next_steps', []):
+                                        st.markdown(f"- {step}")
+                            
+                            # 6. Care Guidance Section
+                            st.markdown("---")
+                            st.markdown("#### 💝 Personalized Care Guidance")
+                            
+                            care = analysis.get('care_guidance', {})
+                            if care.get('success'):
+                                tone = care.get('tone', 'supportive')
+                                tone_emoji = '😊' if tone == 'reassuring' else '🤝'
+                                st.success(f"✅ Guidance Generated ({tone_emoji} {tone.title()} Tone)")
+                                
+                                if care.get('guidance_list'):
+                                    st.markdown("**🎯 Your Personalized Wellness Plan:**")
+                                    for i, guidance in enumerate(care.get('guidance_list', []), 1):
+                                        st.markdown(f"**{i}.** {guidance}")
+                                
+                                if care.get('follow_up_suggestion'):
+                                    st.info(f"**📅 Follow-Up:** {care['follow_up_suggestion']}")
+                                
+                                if care.get('rationale'):
+                                    with st.expander("💭 Why These Suggestions?"):
+                                        st.markdown(care['rationale'])
+                            
+                            # 7. Pipeline Metadata
+                            st.markdown("---")
+                            st.markdown("#### 🔧 Analysis Details")
+                            
+                            metadata = analysis.get('pipeline_metadata', {})
+                            meta_col1, meta_col2, meta_col3 = st.columns(3)
+                            with meta_col1:
+                                st.metric("Agents Executed", metadata.get('agents_executed', 0))
+                            with meta_col2:
+                                st.metric("Successful", metadata.get('agents_successful', 0))
+                            with meta_col3:
+                                completion = metadata.get('completion_status', 'unknown')
+                                status_emoji = '✅' if completion == 'complete' else '⚠️'
+                                st.metric("Status", f"{status_emoji} {completion.title()}")
+                            
+                            # 8. Disclaimer
+                            st.markdown("---")
+                            st.markdown("#### ⚠️ Important Disclaimer")
+                            disclaimer = care.get('disclaimer') or safety.get('disclaimer', '')
+                            if disclaimer:
+                                st.caption(disclaimer)
+                            else:
+                                st.caption("This health monitoring system provides informational insights only and does not constitute medical advice. Always consult qualified healthcare professionals for medical concerns.")
                     
                     else:
                         st.warning(f"⚠️ {result.get('message', 'Analysis could not be completed')}")

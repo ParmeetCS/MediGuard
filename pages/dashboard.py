@@ -64,19 +64,19 @@ def show():
             return f"{(curr - prev):.2f}"
 
         with col1:
-            val = latest.get('movement_speed', 0)
-            prev_val = previous.get('movement_speed', 0) if previous is not None else 0
+            val = latest.get('movement_speed', 0) or latest.get('avg_movement_speed', 0)
+            prev_val = (previous.get('movement_speed', 0) or previous.get('avg_movement_speed', 0)) if previous is not None else 0
             st.metric("Movement Speed", f"{val:.2f}", delta=get_delta(val, prev_val))
             
         with col2:
-            val = latest.get('stability', 0)
-            prev_val = previous.get('stability', 0) if previous is not None else 0
+            val = latest.get('stability', 0) or latest.get('avg_stability', 0)
+            prev_val = (previous.get('stability', 0) or previous.get('avg_stability', 0)) if previous is not None else 0
             st.metric("Stability", f"{val:.2f}", delta=get_delta(val, prev_val))
             
         with col3:
-            val = latest.get('posture_deviation', 0)
-            prev_val = previous.get('posture_deviation', 0) if previous is not None else 0
-            st.metric("Posture Deviation", f"{val:.2f}", delta=get_delta(val, prev_val), delta_color="inverse")
+            val = latest.get('sit_stand_movement_speed', 0)
+            prev_val = previous.get('sit_stand_movement_speed', 0) if previous is not None else 0
+            st.metric("Sit-Stand Speed", f"{val:.2f}", delta=get_delta(val, prev_val))
 
     st.markdown("---")
     
@@ -88,33 +88,68 @@ def show():
     # Ensure date is the index for line_chart
     chart_df = df.set_index('date')
     
-    # Chart 1: Stability & Movement
-    st.markdown("#### 🏃 Movement & Stability")
-    st.line_chart(chart_df[['movement_speed', 'stability']])
-    st.caption("Higher is better for Stability and Speed.")
+    # Determine which columns exist
+    available_cols = chart_df.columns.tolist()
+    
+    # Chart 1: Movement Speed
+    st.markdown("#### 🏃 Movement Speed Over Time")
+    if 'movement_speed' in available_cols or 'avg_movement_speed' in available_cols:
+        speed_col = 'avg_movement_speed' if 'avg_movement_speed' in available_cols else 'movement_speed'
+        st.line_chart(chart_df[[speed_col]])
+        st.caption("Higher is better - shows how quickly you can move.")
+    else:
+        st.info("Movement speed data not available yet.")
 
-    # Chart 2: Posture Deviation
-    st.markdown("#### 🧍 Posture Deviation")
-    st.line_chart(chart_df[['posture_deviation']])
-    st.caption("Lower is generally better (indicates less unnecessary swaying).")
+    # Chart 2: Stability
+    st.markdown("#### ⚖️ Stability & Balance")
+    if 'stability' in available_cols or 'avg_stability' in available_cols:
+        stability_col = 'avg_stability' if 'avg_stability' in available_cols else 'stability'
+        st.line_chart(chart_df[[stability_col]])
+        st.caption("Higher is better - shows how steady you are.")
+    else:
+        st.info("Stability data not available yet.")
+    
+    # Chart 3: Sit-Stand Performance
+    st.markdown("#### 🪑 Sit-Stand Speed")
+    if 'sit_stand_movement_speed' in available_cols:
+        st.line_chart(chart_df[['sit_stand_movement_speed']])
+        st.caption("Higher is better - shows leg strength and mobility.")
+    else:
+        st.info("Sit-stand data not available yet.")
 
     # Data Table
     with st.expander("📋 View Raw Data History"):
-        st.dataframe(df.style.format({
-            "movement_speed": "{:.2f}",
-            "stability": "{:.2f}",
-            "posture_deviation": "{:.2f}",
-        }))
+        # Format only numeric columns
+        format_dict = {}
+        for col in df.columns:
+            if col not in ['date', 'user_id', 'check_date', 'check_timestamp']:
+                # Check if column is numeric
+                if pd.api.types.is_numeric_dtype(df[col]):
+                    format_dict[col] = "{:.3f}"
+        
+        if format_dict:
+            st.dataframe(df.style.format(format_dict))
+        else:
+            st.dataframe(df)
 
     # Simple Insight logic
     st.markdown("### 🤖 Quick Insights")
-    avg_stability = df['stability'].mean()
-    if avg_stability > 0.8:
-        st.success(f"✅ Your stability is excellent! (Average: {avg_stability:.2f})")
-    elif avg_stability > 0.5:
-        st.warning(f"⚠️ Your stability is moderate. (Average: {avg_stability:.2f})")
+    
+    # Use whichever stability column exists
+    stability_col = 'avg_stability' if 'avg_stability' in df.columns else 'stability' if 'stability' in df.columns else None
+    
+    if stability_col:
+        avg_stability = df[stability_col].mean()
+        if avg_stability >= 0.85:
+            st.success(f"✅ Your balance is excellent! (Average: {avg_stability:.2f})")
+        elif avg_stability >= 0.75:
+            st.info(f"👍 Your balance is good. (Average: {avg_stability:.2f})")
+        elif avg_stability >= 0.65:
+            st.warning(f"⚠️ Your balance could use some work. (Average: {avg_stability:.2f})")
+        else:
+            st.error(f"📉 Consider working on balance exercises. (Average: {avg_stability:.2f})")
     else:
-        st.error(f"📉 Attention needed: Stability is low. (Average: {avg_stability:.2f})")
+        st.info("Complete more health checks to see insights!")
 
     st.markdown("---")
     col1, col2 = st.columns(2)

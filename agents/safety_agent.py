@@ -36,42 +36,38 @@ class SafetyAgent:
         self.agent_name = "Safety Oversight"
         
         # System instruction enforces safety-first approach
-        self.system_instruction = """You are a safety oversight AI that monitors health monitoring outputs for patterns requiring professional medical attention.
+        self.system_instruction = """You are a caring friend who gently suggests when someone should see their doctor. Use the kindest, simplest words possible - like talking to someone you care about.
 
-Your ONLY role:
-- Review analysis outputs from drift and risk agents
-- Identify extreme, persistent, or concerning patterns
-- Determine if professional consultation should be recommended
-- Provide clear safety disclaimers and rationale
+When suggesting a doctor visit:
+- "Hey, I think it's a good idea to have a chat with your doctor about this" NOT "Professional consultation recommended"
+- "Your doctor can help figure out what's going on" NOT "Medical evaluation required for diagnostic assessment"
+- "Better safe than sorry - give your doctor a call" NOT "Escalation to healthcare provider initiated"
+- "Just to be on the safe side, check in with your doctor" NOT "Pattern exceeds acceptable threshold parameters"
 
-What you ARE:
-- A safety guardrail ensuring responsible AI use
-- An escalation decision system
-- A disclaimer and safety message generator
+Be gentle and reassuring:
+- "There's nothing to panic about, but..."
+- "I'm probably being extra careful, but..."
+- "You know what? Just to be sure..."
+- "Doctors are there to help with exactly this kind of thing"
 
-What you ARE NOT:
-- A diagnostic tool
-- A medical advisor
-- A health analyzer
-- A treatment recommender
+Explain why simply:
+- "This has been going on for a while" not "Sustained temporal pattern detected"
+- "It's changing faster than I'd like to see" not "Acceleration rate exceeds parameters"
+- "You mentioned feeling different" not "Subjective symptom correlation identified"
 
-Critical safety protocols:
-1. NEVER provide medical advice or diagnosis
-2. NEVER suggest specific treatments or medications
-3. NEVER minimize concerning patterns - when in doubt, escalate
-4. ALWAYS recommend professional consultation for persistent/severe patterns
-5. ALWAYS include clear disclaimers that this is not medical advice
-6. Use clear, direct language - avoid technical jargon in safety messages
-7. Emphasize that AI monitoring supplements but never replaces professional care
+NEVER say:
+- Medical diagnoses or disease names
+- Scary medical terms
+- Risk levels or percentages
+- "Urgent" or "emergency" unless truly needed
 
-Escalation triggers:
-- High severity drift (>10%) persisting over multiple days
-- Risk level classified as "potentially_concerning"
-- Multiple metrics showing correlated decline
-- Any pattern that could benefit from professional evaluation
-- User-reported symptoms alongside concerning patterns
+ALWAYS say:
+- Why a doctor visit is a good idea
+- That doctors are helpful, not scary
+- That you're probably being extra cautious
+- That it's smart to check things out
 
-Safety-first principle: Better to over-escalate than under-escalate."""
+You're a caring friend looking out for someone - warm, kind, practical."""
         
         # Escalation thresholds - conservative for safety
         self.ESCALATION_TRIGGERS = {
@@ -118,7 +114,7 @@ Safety-first principle: Better to over-escalate than under-escalate."""
                 - success (bool): Evaluation success status
                 - escalation_required (bool): TRUE if professional consultation recommended
                 - safety_message (str): Clear message for user with disclaimers
-                - rationale (str): Explanation of why escalation is/isn't needed
+                - rationale (str): Explanation of why escalation is or is not needed
                 - urgency_level (str): "routine", "prompt", "urgent"
                 - disclaimer (str): Legal/ethical disclaimer
                 - next_steps (list): Recommended actions
@@ -259,7 +255,7 @@ Safety-first principle: Better to over-escalate than under-escalate."""
         """
         Apply rule-based escalation triggers for immediate safety checks
         
-        These are hard-coded safety rules that don't require AI evaluation.
+        These are hard-coded safety rules that do not require AI evaluation.
         If any trigger fires, escalation is automatically required.
         
         Args:
@@ -333,21 +329,33 @@ Safety-first principle: Better to over-escalate than under-escalate."""
         - Provide clear rationale
         - Determine urgency level
         """
-        prompt = f"""Evaluate if escalation to professional medical care is required based on these health monitoring outputs:
-
-**Safety Indicators:**
-- Maximum Drift: {safety_indicators['max_drift_percentage']:.1f}% from baseline
-- Drift Severity: {safety_indicators['severity_level']}
-- Risk Level: {safety_indicators['risk_level']}
-- Days Observed: {safety_indicators['days_observed']}
-- Trend Direction: {"Worsening" if safety_indicators['is_worsening'] else "Stable/Recovering"}
-- Affected Metrics: {safety_indicators['affected_metrics_count']}
-- User-Reported Symptoms: {"Yes" if safety_indicators['has_symptoms'] else "No"}
-
-**Rule-Based Escalation Check:**
-- Escalation Required: {"YES" if rule_based_escalation['escalation_required'] else "NO"}
-- Triggered Safety Rules: {rule_based_escalation['trigger_count']}
-"""
+        max_drift_pct = safety_indicators.get('max_drift_percentage', 0)
+        severity_level = safety_indicators.get('severity_level', 'unknown')
+        risk_level = safety_indicators.get('risk_level', 'unknown')
+        days_observed = safety_indicators.get('days_observed', 0)
+        is_worsening = safety_indicators.get('is_worsening', False)
+        affected_count = safety_indicators.get('affected_metrics_count', 0)
+        has_symptoms = safety_indicators.get('has_symptoms', False)
+        
+        escalation_req = rule_based_escalation.get('escalation_required', False)
+        trigger_count = rule_based_escalation.get('trigger_count', 0)
+        
+        trend_text = "Worsening" if is_worsening else "Stable/Recovering"
+        symptoms_text = "Yes" if has_symptoms else "No"
+        escalation_text = "YES" if escalation_req else "NO"
+        
+        prompt = "Evaluate if escalation to professional medical care is required based on these health monitoring outputs:\n\n"
+        prompt += "**Safety Indicators:**\n"
+        prompt += f"- Maximum Drift: {max_drift_pct:.1f} percent from baseline\n"
+        prompt += f"- Drift Severity: {severity_level}\n"
+        prompt += f"- Risk Level: {risk_level}\n"
+        prompt += f"- Days Observed: {days_observed}\n"
+        prompt += f"- Trend Direction: {trend_text}\n"
+        prompt += f"- Affected Metrics: {affected_count}\n"
+        prompt += f"- User-Reported Symptoms: {symptoms_text}\n\n"
+        prompt += "**Rule-Based Escalation Check:**\n"
+        prompt += f"- Escalation Required: {escalation_text}\n"
+        prompt += f"- Triggered Safety Rules: {trigger_count}\n"
         
         if rule_based_escalation['triggered_rules']:
             prompt += "\nTriggered Rules:\n"
@@ -358,7 +366,7 @@ Safety-first principle: Better to over-escalate than under-escalate."""
 **Your Task:**
 
 1. Verify if escalation is required (true/false)
-   - If ANY rule-based trigger fired → escalation IS required
+   - If ANY rule-based trigger fired then escalation IS required
    - Consider overall pattern severity and persistence
    - Apply safety-first principle: when in doubt, escalate
 

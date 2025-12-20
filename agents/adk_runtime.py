@@ -23,11 +23,12 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 # ========================================
 
 # Default model configuration following ADK best practices
+# Enhanced for detailed, user-friendly medical responses
 DEFAULT_MODEL_CONFIG = {
-    "temperature": 0.7,  # Balance between creativity and consistency
+    "temperature": 0.8,  # Slightly higher for more natural, empathetic responses
     "top_p": 0.95,       # Nucleus sampling for diverse responses
     "top_k": 40,         # Top-k sampling for quality
-    "max_output_tokens": 2048,  # Maximum response length
+    "max_output_tokens": 4096,  # Increased for detailed, comprehensive medical responses
 }
 
 # Safety settings for health-related content
@@ -60,12 +61,12 @@ class GeminiADKRuntime:
     Google's ADK design principles.
     """
     
-    def __init__(self, model_name: str = "gemini-1.5-flash"):
+    def __init__(self, model_name: str = "models/gemini-2.5-flash"):
         """
         Initialize the ADK runtime with Gemini model
         
         Args:
-            model_name (str): Gemini model to use (default: gemini-1.5-flash)
+            model_name (str): Gemini model to use (default: models/gemini-2.5-flash)
         """
         self.model_name = model_name
         self.model = None
@@ -89,6 +90,7 @@ class GeminiADKRuntime:
             genai.configure(api_key=GOOGLE_API_KEY)
             
             # Initialize the Gemini model with safety settings
+            # Using stable model name instead of -latest
             self.model = genai.GenerativeModel(
                 model_name=self.model_name,
                 safety_settings=SAFETY_SETTINGS
@@ -98,7 +100,8 @@ class GeminiADKRuntime:
             print(f"✅ ADK Runtime initialized with model: {self.model_name}")
             
         except Exception as e:
-            print(f"❌ Error configuring ADK Runtime: {str(e)}")
+            error_msg = str(e)
+            print(f"❌ Error configuring ADK Runtime: {error_msg}")
             self.is_configured = False
     
     def run_agent_prompt(

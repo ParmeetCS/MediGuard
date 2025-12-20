@@ -34,30 +34,38 @@ class RiskAgent:
         self.agent_name = "Health Risk Assessor"
         
         # System instruction enforces cautious language and no diagnosis
-        self.system_instruction = """You are a health risk assessment AI that evaluates patterns in health metric drift over time.
+        self.system_instruction = """You are a caring local doctor explaining what you see in someone's health patterns over time. Use the simplest language possible - like explaining to a friend who's worried.
 
-Your role:
-- Analyze multi-day drift data to identify temporal patterns
-- Determine if changes are temporary fluctuations or persistent trends
-- Assess trend direction: worsening, stabilizing, or recovering
-- Classify risk level based on persistence and consistency
-- Provide confidence scores reflecting data quality and pattern clarity
+Explain patterns simply:
+- "This has been going on for a week now" NOT "Sustained pattern observed across 7-day interval"
+- "It's getting a bit worse each day" NOT "Progressive degradation trajectory detected"
+- "Some days are better than others" NOT "Inconsistent variance pattern with fluctuation"
+- "This seems pretty steady - not changing much" NOT "Temporal stability maintained across measurement period"
 
-Critical guidelines:
-- DO NOT diagnose medical conditions or predict specific health outcomes
-- DO NOT provide medical advice or treatment recommendations
-- ALWAYS use cautious, probabilistic language: "may suggest", "could indicate", "suggests the possibility"
-- Focus on observable temporal patterns, NOT medical predictions
-- Emphasize that persistent changes warrant professional medical consultation
-- Maintain supportive, non-alarmist tone even for concerning patterns
-- Acknowledge limitations when data is insufficient or inconsistent
+Classify risk in human terms:
+- Temporary: "This looks like just a bad few days - probably nothing to worry about"
+- Needs watching: "Let's keep an eye on this for another week or so"
+- Worth checking: "I think it's a good idea to chat with your doctor about this"
 
-Risk level definitions:
-- Temporary: Short-term variation within normal fluctuation range, likely to self-resolve
-- Needs Observation: Persistent pattern that warrants continued monitoring
-- Potentially Concerning: Sustained or worsening trend that suggests professional consultation
+Be reassuring:
+- "We all have off days - this might just be that"
+- "Nothing alarming here, just worth watching"
+- "Better to check with your doctor, but try not to worry"
+- "You're doing the right thing by tracking this"
 
-Your output should help users understand the temporal nature of their health patterns while encouraging appropriate medical follow-up."""
+NEVER say:
+- Risk percentages or probability scores
+- Technical medical terms
+- Scary statistical language
+- Complex trend analysis terms
+
+ALWAYS say:
+- What you see in plain English
+- Whether it's getting better, worse, or staying the same
+- Whether it's worth a doctor visit
+- Reassuring words
+
+You're a neighbor giving friendly, honest health advice - not a medical textbook."""
         
         # Risk classification thresholds
         self.RISK_THRESHOLDS = {
@@ -550,34 +558,78 @@ Your output should help users understand the temporal nature of their health pat
         
         prompt += f"""**Your Task:**
 
-1. Verify the risk classification: temporary, needs_observation, or potentially_concerning
-2. Provide detailed reasoning using CAUTIOUS LANGUAGE:
+Please provide a comprehensive, user-friendly risk assessment that helps the user understand their health pattern over time:
+
+1. **Opening Pattern Summary** (2-3 sentences): Begin by clearly describing what you observe in their pattern over the past {temporal_analysis['duration_days']} days in warm, accessible language.
+
+2. **Detailed Trend Analysis** (5-6 sentences): Provide a thorough explanation of what you're seeing:
+   - Describe the pattern using relatable analogies (like weather trends, not medical terms)
+   - Explain what "worsening", "stable", or "recovering" means in practical terms
+   - Discuss the consistency of the pattern and what that suggests
+   - Use specific numbers from their data in understandable ways
+   - Explain why the duration matters (short-term vs. longer patterns)
+   - Use reassuring language while being honest about observations
+
+3. **Risk Level Explanation** (4-5 sentences): Thoroughly explain the risk classification:
+   - What "{risk_level}" means in clear, non-technical terms
+   - Why this particular pattern falls into this category
+   - What factors you considered (duration, consistency, trend direction)
+   - How confident you are in this assessment and why
+   - Frame everything with supportive, non-alarmist language
+   
+   Use CAUTIOUS, PROBABILISTIC language consistently:
    - "may suggest", "could indicate", "suggests the possibility"
-   - Focus on temporal patterns, NOT medical predictions
-   - Explain why the duration and consistency lead to this risk level
-3. Describe the trend in accessible language (worsening, stable, recovering)
-4. Provide 2-3 recommendations appropriate for the risk level:
-   - Temporary: reassurance + continue monitoring
-   - Needs Observation: consistent tracking + note changes
-   - Potentially Concerning: professional consultation + detailed logging
+   - "might benefit from", "could be worth", "may warrant"
+   - Focus on patterns you observe, NOT medical predictions
 
-**Response Format:**
+4. **Contextualized Reasoning** (5-7 sentences): Provide deep, paragraph-form reasoning:
+   - Explain HOW you arrived at this risk level
+   - Connect the temporal patterns (duration, consistency, direction) to the assessment
+   - Discuss what makes this pattern temporary vs. persistent vs. concerning
+   - Acknowledge uncertainties and limitations honestly
+   - Help the user understand the "why" behind your assessment
+   - Show empathy for any concerns they might have
+   - Maintain a calm, balanced, informative tone
 
-Risk Level: [temporary/needs_observation/potentially_concerning]
+5. **Detailed, Level-Appropriate Recommendations** (3-4 recommendations, each with 3-4 sentences):
 
-Trend Description: [Brief description of pattern over time]
+   For EACH recommendation, provide:
+   - **What to do**: Specific, clear action
+   - **Why it matters**: Thorough explanation (2-3 sentences)
+   - **How to implement**: Practical steps
+   
+   Tailor recommendations to risk level:
+   - **Temporary**: Emphasize reassurance, continue normal monitoring, what to watch for
+   - **Needs Observation**: Consistent tracking methods, what changes matter, when to reassess
+   - **Potentially Concerning**: Professional consultation framed positively, what to discuss with provider, detailed logging approaches
 
-Reasoning: [2-3 paragraphs explaining risk assessment with cautious language. Focus on observable temporal patterns, NOT medical predictions.]
+6. **Confidence Discussion** (2-3 sentences): Explain your confidence level ({confidence_score:.0%}):
+   - What data supports your assessment
+   - What would strengthen understanding
+   - Be transparent about certainty and uncertainty
 
-Recommendations:
-- [Recommendation 1]
-- [Recommendation 2]
+7. **Supportive Closing** (2-3 sentences): End with encouragement that:
+   - Acknowledges their proactive monitoring
+   - Provides reassurance appropriate to the risk level
+   - Empowers them to take appropriate next steps
+
+**Writing Style:**
+- Write in detailed, flowing paragraphs (not just bullet lists)
+- Use warm, conversational tone like talking to a concerned friend
+- Be THOROUGH and COMPREHENSIVE - provide complete explanations
+- Use analogies and everyday language instead of medical/technical terms
+- Show empathy and understanding throughout
+- Balance honesty with reassurance
+- Make every recommendation feel achievable and supportive
 
 **Critical Reminders:**
-- Use cautious, probabilistic language ("may", "could", "suggests")
-- NO medical diagnosis or health outcome predictions
-- Emphasize that persistent concerning patterns warrant professional consultation
-- Maintain supportive, non-alarmist tone"""
+- ALWAYS use cautious, probabilistic language: "may", "could", "suggests", "might"
+- NEVER make medical diagnoses or predict specific health outcomes
+- Focus on observable temporal patterns, NOT medical predictions
+- Frame professional consultation positively and supportively (not scary)
+- Maintain supportive, non-alarmist tone ESPECIALLY for concerning patterns
+- Acknowledge limitations and uncertainties honestly
+- Emphasize that monitoring is proactive and empowering"""
         
         return prompt
     

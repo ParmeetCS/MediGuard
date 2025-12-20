@@ -16,6 +16,66 @@ from agents.orchestrator import run_full_health_analysis, quick_drift_check, Hea
 from agents.adk_runtime import is_adk_ready
 
 
+def rate_metric_value(metric_name: str, value: float) -> Dict[str, str]:
+    """
+    Rate a health metric value as Excellent/Good/Fair/Bad
+    
+    Args:
+        metric_name: Name of the metric
+        value: The metric value (0.0 to 1.0)
+    
+    Returns:
+        Dict with rating, emoji, color, and description
+    """
+    # Normalize metric name
+    metric_lower = metric_name.lower()
+    
+    # Define thresholds for different metrics
+    if 'movement' in metric_lower or 'speed' in metric_lower:
+        # Movement Speed thresholds
+        if value >= 0.90:
+            return {'rating': 'Excellent', 'emoji': '🟢', 'color': '#4CAF50', 'description': 'Moving quickly and efficiently'}
+        elif value >= 0.80:
+            return {'rating': 'Good', 'emoji': '✅', 'color': '#8BC34A', 'description': 'Healthy movement, nothing concerning'}
+        elif value >= 0.70:
+            return {'rating': 'Fair', 'emoji': '🟡', 'color': '#FFC107', 'description': 'Slower than ideal, worth monitoring'}
+        else:
+            return {'rating': 'Needs Attention', 'emoji': '🟠', 'color': '#FF9800', 'description': 'Significant slowness, consider check-up'}
+    
+    elif 'stability' in metric_lower or 'balance' in metric_lower:
+        # Stability thresholds
+        if value >= 0.85:
+            return {'rating': 'Excellent', 'emoji': '🟢', 'color': '#4CAF50', 'description': 'Very steady, low fall risk'}
+        elif value >= 0.75:
+            return {'rating': 'Good', 'emoji': '✅', 'color': '#8BC34A', 'description': 'Mostly stable, acceptable range'}
+        elif value >= 0.65:
+            return {'rating': 'Fair', 'emoji': '🟡', 'color': '#FFC107', 'description': 'Some wobbliness, watch closely'}
+        else:
+            return {'rating': 'Needs Attention', 'emoji': '🟠', 'color': '#FF9800', 'description': 'Unsteady, higher fall risk'}
+    
+    elif 'sit' in metric_lower and 'stand' in metric_lower:
+        # Sit-Stand Speed thresholds
+        if value >= 0.85:
+            return {'rating': 'Excellent', 'emoji': '🟢', 'color': '#4CAF50', 'description': 'Stand up quickly and easily'}
+        elif value >= 0.75:
+            return {'rating': 'Good', 'emoji': '✅', 'color': '#8BC34A', 'description': 'Normal speed, no issues'}
+        elif value >= 0.65:
+            return {'rating': 'Fair', 'emoji': '🟡', 'color': '#FFC107', 'description': 'Taking longer, may indicate weakness'}
+        else:
+            return {'rating': 'Needs Attention', 'emoji': '🟠', 'color': '#FF9800', 'description': 'Struggling to stand, check with doctor'}
+    
+    else:
+        # Default thresholds
+        if value >= 0.85:
+            return {'rating': 'Excellent', 'emoji': '🟢', 'color': '#4CAF50', 'description': 'Great performance'}
+        elif value >= 0.75:
+            return {'rating': 'Good', 'emoji': '✅', 'color': '#8BC34A', 'description': 'Healthy range'}
+        elif value >= 0.65:
+            return {'rating': 'Fair', 'emoji': '🟡', 'color': '#FFC107', 'description': 'Worth monitoring'}
+        else:
+            return {'rating': 'Needs Attention', 'emoji': '🟠', 'color': '#FF9800', 'description': 'Consider consultation'}
+
+
 class AIHealthAnalyzer:
     """
     High-level AI integration for health analysis
@@ -244,6 +304,10 @@ class AIHealthAnalyzer:
         risk_assessment = analysis.get('risk_assessment', {})
         safety_notice = analysis.get('safety_notice', {})
         
+        # Get ratings for baseline and recent values
+        baseline_rating = rate_metric_value(metric_name, baseline)
+        recent_rating = rate_metric_value(metric_name, recent)
+        
         return {
             "metric_name": metric_name.replace('_', ' ').title(),
             "baseline_value": round(baseline, 2),
@@ -254,7 +318,9 @@ class AIHealthAnalyzer:
             "risk_level": risk_assessment.get('risk_level', 'unknown'),
             "escalation_needed": safety_notice.get('escalation_required', False),
             "possible_factors": context_analysis.get('possible_factors', []),
-            "confidence": context_analysis.get('confidence_level', 0.0)
+            "confidence": context_analysis.get('confidence_level', 0.0),
+            "baseline_rating": baseline_rating,
+            "recent_rating": recent_rating
         }
     
     def _extract_recommendations(self, analysis: Dict[str, Any]) -> List[str]:

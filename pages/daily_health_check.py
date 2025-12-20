@@ -428,9 +428,29 @@ def show():
             
             st.info(f"💾 Saving health check data for user: {user_id}...")
             
-            # Display what we're about to save
-            with st.expander("📋 View Data Being Saved", expanded=False):
-                st.json(health_data)
+            # Display what we're about to save in user-friendly format
+            with st.expander("📋 View Your Health Check Summary", expanded=False):
+                st.markdown("### 📊 Today's Health Check Data")
+                
+                # Create a formatted display
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**🏃 Movement Metrics:**")
+                    for key, value in health_data.items():
+                        if 'movement' in key or 'speed' in key:
+                            formatted_key = key.replace('_', ' ').title()
+                            st.text(f"{formatted_key}: {value:.4f}")
+                
+                with col2:
+                    st.markdown("**⚖️ Balance & Stability:**")
+                    for key, value in health_data.items():
+                        if 'stability' in key or 'balance' in key:
+                            formatted_key = key.replace('_', ' ').title()
+                            st.text(f"{formatted_key}: {value:.4f}")
+                
+                st.markdown("---")
+                st.caption(f"Total metrics recorded: {len(health_data)}")
             
             # Save to Supabase
             try:
@@ -441,11 +461,15 @@ def show():
                     st.success(f"✅ {result['message']}")
                     st.balloons()
                     
-                    # Show saved data details
+                    # Show saved data details in a nice format
                     if result.get('data'):
-                        st.info(f"📊 Saved to Supabase database at {datetime.now().strftime('%H:%M:%S')}")
-                        with st.expander("View Saved Record"):
-                            st.json(result['data'])
+                        st.info(f"📊 Saved to database at {datetime.now().strftime('%H:%M:%S')}")
+                        with st.expander("📝 View Saved Record Details"):
+                            saved_data = result['data']
+                            st.markdown(f"**Date:** {saved_data.get('check_date', 'N/A')}")
+                            st.markdown(f"**Time:** {saved_data.get('check_timestamp', 'N/A')}")
+                            st.markdown(f"**User ID:** {saved_data.get('user_id', 'N/A')}")
+                            st.success("✅ All metrics successfully saved to your health profile")
                 else:
                     st.error(f"❌ Error saving to Supabase: {result['message']}")
                     st.warning("⚠️ This might be a connection issue or RLS policy issue.")

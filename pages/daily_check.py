@@ -93,8 +93,25 @@ def save_daily_check_data(features: dict):
                 continue
         
         # Debug: Show what we're saving
-        with st.expander("🔍 Debug: View data being saved"):
-            st.json(data)
+        with st.expander("🔍 Debug: View Saved Health Data"):
+            st.markdown("### 📊 Your Health Check Data")
+            st.markdown("Here's what we're recording for today:")
+            
+            # Display in a user-friendly table format
+            display_data = []
+            for key, value in data.items():
+                if key not in ['user_id', 'check_date', 'check_timestamp']:
+                    # Format the key nicely
+                    formatted_key = key.replace('_', ' ').title()
+                    display_data.append({
+                        'Metric': formatted_key,
+                        'Value': f"{value:.4f}" if isinstance(value, float) else str(value)
+                    })
+            
+            if display_data:
+                st.table(display_data)
+            
+            st.caption(f"✅ Saving {len(display_data)} health metrics for {check_date}")
         
         # Upsert (insert or update if exists for this date)
         response = supabase.table('health_checks').upsert(
