@@ -1,7 +1,6 @@
-# MediGuard Drift AI - Requirements
 streamlit
-pandas
-plotly
+google-generativeai
+pydantic
 python-dotenv
 supabase
 opencv-python

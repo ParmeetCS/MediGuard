@@ -325,7 +325,8 @@ with st.sidebar:
     menu_options = {
         "🏠 Home": "Home",
         "👤 Profile": "Profile",
-        "📋 Daily Health Check": "Daily Health Check",
+        "� Health Context": "Health Context",
+        "�📋 Daily Health Check": "Daily Health Check",
         "📊 Dashboard": "Dashboard",
         "💬 AI Health Chat": "AI Health Chat"
     }
@@ -365,17 +366,21 @@ try:
         from pages import profile
         profile.show()
     
+    elif current_page == "Health Context":
+        from pages import context_inputs
+        context_inputs.show()
+    
     elif current_page == "Daily Health Check":
-        from pages import daily_check
-        daily_check.show()
+        from pages import daily_health_check
+        daily_health_check.show()
     
     elif current_page == "Dashboard":
         from pages import dashboard
         dashboard.show()
     
     elif current_page == "AI Health Chat":
-        from pages import chat_agent
-        chat_agent.show()
+        from pages import ai_health_chat
+        ai_health_chat.show()
     
 except ImportError as e:
     # Handle missing page modules gracefully
