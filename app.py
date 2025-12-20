@@ -136,16 +136,16 @@ try:
         profile.show()
     
     elif current_page == "Daily Health Check":
-        from pages import daily_health_check
-        daily_health_check.show()
+        from pages import daily_check
+        daily_check.show()
     
     elif current_page == "Dashboard":
         from pages import dashboard
         dashboard.show()
     
     elif current_page == "AI Health Chat":
-        from pages import ai_health_chat
-        ai_health_chat.show()
+        from pages import chat_agent
+        chat_agent.show()
     
 except ImportError as e:
     # Handle missing page modules gracefully
