@@ -61,12 +61,12 @@ class GeminiADKRuntime:
     Google's ADK design principles.
     """
     
-    def __init__(self, model_name: str = "models/gemini-2.5-flash"):
+    def __init__(self, model_name: str = "models/gemini-3-pro-preview"):
         """
         Initialize the ADK runtime with Gemini model
         
         Args:
-            model_name (str): Gemini model to use (default: models/gemini-2.5-flash)
+            model_name (str): Gemini model to use (default: models/gemini-3-pro-preview)
         """
         self.model_name = model_name
         self.model = None
