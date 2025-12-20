@@ -35,7 +35,7 @@ class AIHealthAnalyzer:
     def analyze_user_health(
         self,
         user_id: str,
-        metric_name: str = "overall_mobility",
+        metric_name: str = "avg_movement_speed",  # Changed default to a metric that exists
         days_to_analyze: int = 14
     ) -> Dict[str, Any]:
         """
@@ -43,7 +43,7 @@ class AIHealthAnalyzer:
         
         Args:
             user_id (str): User identifier
-            metric_name (str): Metric to analyze (default: overall_mobility)
+            metric_name (str): Metric to analyze (default: avg_movement_speed)
             days_to_analyze (int): Number of days of history to fetch
         
         Returns:
@@ -54,6 +54,7 @@ class AIHealthAnalyzer:
                 - summary (dict): User-friendly summary
                 - recommendations (list): Actionable recommendations
                 - error (str): Error message if failed
+                - message (str): User-friendly message
         """
         # Check if ADK is ready
         if not is_adk_ready():
@@ -82,13 +83,33 @@ class AIHealthAnalyzer:
                     "message": "Insufficient data for analysis. Please complete more daily health checks."
                 },
                 "recommendations": ["Complete daily health checks to establish baseline"],
-                "error": "Not enough health check data"
+                "error": "Not enough health check data",
+                "message": f"You need at least 2 health checks for AI analysis. Currently have: {len(health_result['data']) if health_result['success'] else 0}"
             }
         
         # Convert to DataFrame for analysis
         df = pd.DataFrame(health_result['data'])
         df['date'] = pd.to_datetime(df['check_date'])
         df = df.sort_values('date')
+        
+        # Check if metric exists in the data
+        if metric_name not in df.columns:
+            # Try to use a metric that exists
+            available_metrics = [col for col in df.columns if 'movement_speed' in col or 'stability' in col]
+            if available_metrics:
+                metric_name = available_metrics[0]  # Use first available metric
+            else:
+                return {
+                    "success": False,
+                    "has_data": True,
+                    "analysis": {},
+                    "summary": {
+                        "message": f"Metric '{metric_name}' not found in health data."
+                    },
+                    "recommendations": ["Complete health checks with all required metrics"],
+                    "error": f"Metric '{metric_name}' not available. Available columns: {list(df.columns)}",
+                    "message": f"Data issue: Metric '{metric_name}' not found in your health checks"
+                }
         
         # Prepare data for ADK analysis
         baseline_value = self._calculate_baseline(df, metric_name)

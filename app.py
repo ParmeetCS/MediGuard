@@ -325,8 +325,8 @@ with st.sidebar:
     menu_options = {
         "🏠 Home": "Home",
         "👤 Profile": "Profile",
-        "� Health Context": "Health Context",
-        "�📋 Daily Health Check": "Daily Health Check",
+        "📝 Health Context": "Health Context",
+        "🩺 Daily Health Check": "Daily Health Check",
         "📊 Dashboard": "Dashboard",
         "💬 AI Health Chat": "AI Health Chat"
     }

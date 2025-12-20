@@ -18,6 +18,7 @@ from vision.feature_extraction import extract_features
 
 # Import database module
 from storage.database import save_health_record, load_health_records
+from storage.health_repository import save_health_check
 
 
 def load_history_df():
@@ -46,13 +47,38 @@ def show():
     
     st.markdown("---")
     
-    # Initialize Session State
+    # Initialize Session State FIRST
     if 'stage' not in st.session_state:
         st.session_state.stage = 'intro'
     if 'results' not in st.session_state:
         st.session_state.results = {}
     if 'activity_data' not in st.session_state:
         st.session_state.activity_data = {}
+    if 'sit_stand_complete' not in st.session_state:
+        st.session_state.sit_stand_complete = False
+    if 'stability_complete' not in st.session_state:
+        st.session_state.stability_complete = False
+    if 'movement_complete' not in st.session_state:
+        st.session_state.movement_complete = False
+    
+    # Debug panel (can be toggled) - Now safe to access session state
+    with st.expander("🔧 Debug Info", expanded=False):
+        st.write(f"**Current Stage:** `{st.session_state.stage}`")
+        st.write(f"**User ID:** `{st.session_state.get('user_id', 'Not set')}`")
+        st.write(f"**Authenticated:** `{st.session_state.get('authenticated', False)}`")
+        st.write(f"**Completed Tests:** Sit-Stand: `{st.session_state.sit_stand_complete}`, "
+                 f"Stability: `{st.session_state.stability_complete}`, "
+                 f"Movement: `{st.session_state.movement_complete}`")
+        st.write(f"**Activity Data Keys:** `{list(st.session_state.activity_data.keys())}`")
+        
+        if st.button("🔄 Reset Health Check", key="reset_hc"):
+            st.session_state.stage = 'intro'
+            st.session_state.results = {}
+            st.session_state.activity_data = {}
+            st.session_state.sit_stand_complete = False
+            st.session_state.stability_complete = False
+            st.session_state.movement_complete = False
+            st.rerun()
 
     # Recording Function
     def run_recording_session(activity_key, duration, instruction):
@@ -245,6 +271,9 @@ def show():
             if st.button("🚀 Begin Health Assessment", type="primary", use_container_width=True):
                 st.session_state.stage = 'sit_stand'
                 st.session_state.activity_data = {}
+                st.session_state.sit_stand_complete = False
+                st.session_state.stability_complete = False
+                st.session_state.movement_complete = False
                 st.rerun()
         
         st.markdown("---")
@@ -284,10 +313,16 @@ def show():
             with st.spinner("🔬 Analyzing biomechanics..."):
                 feats = extract_features(result, activity_name="sit_to_stand")
                 st.session_state.activity_data['sit_stand'] = feats
-                display_metrics_with_data(feats, "Sit-to-Stand")
-                if st.button("✅ Continue to Stability Test", type="primary", use_container_width=True):
-                    st.session_state.stage = 'stability'
-                    st.rerun()
+                st.session_state.sit_stand_complete = True
+            
+        # Show results if test is complete
+        if st.session_state.get('sit_stand_complete', False):
+            display_metrics_with_data(st.session_state.activity_data['sit_stand'], "Sit-to-Stand")
+            st.success("✅ Sit-to-Stand test completed!")
+            if st.button("➡️ Continue to Stability Test", type="primary", use_container_width=True, key="continue_stability"):
+                st.session_state.stage = 'stability'
+                st.session_state.sit_stand_complete = False
+                st.rerun()
 
     # STAGE: STABILITY
     elif st.session_state.stage == 'stability':
@@ -301,10 +336,16 @@ def show():
             with st.spinner("🔬 Analyzing balance patterns..."):
                 feats = extract_features(result, activity_name="stability")
                 st.session_state.activity_data['stability'] = feats
-                display_metrics_with_data(feats, "Stability")
-                if st.button("✅ Continue to Movement Test", type="primary", use_container_width=True):
-                    st.session_state.stage = 'movement'
-                    st.rerun()
+                st.session_state.stability_complete = True
+        
+        # Show results if test is complete
+        if st.session_state.get('stability_complete', False):
+            display_metrics_with_data(st.session_state.activity_data['stability'], "Stability")
+            st.success("✅ Stability test completed!")
+            if st.button("➡️ Continue to Movement Test", type="primary", use_container_width=True, key="continue_movement"):
+                st.session_state.stage = 'movement'
+                st.session_state.stability_complete = False
+                st.rerun()
 
     # STAGE: MOVEMENT
     elif st.session_state.stage == 'movement':
@@ -318,10 +359,16 @@ def show():
             with st.spinner("🔬 Analyzing movement dynamics..."):
                 feats = extract_features(result, activity_name="general")
                 st.session_state.activity_data['movement'] = feats
-                display_metrics_with_data(feats, "Movement Speed")
-                if st.button("💾 Complete & Save Results", type="primary", use_container_width=True):
-                    st.session_state.stage = 'complete'
-                    st.rerun()
+                st.session_state.movement_complete = True
+        
+        # Show results if test is complete
+        if st.session_state.get('movement_complete', False):
+            display_metrics_with_data(st.session_state.activity_data['movement'], "Movement Speed")
+            st.success("✅ Movement test completed!")
+            if st.button("💾 Complete & Save Results", type="primary", use_container_width=True, key="complete_save"):
+                st.session_state.stage = 'complete'
+                st.session_state.movement_complete = False
+                st.rerun()
 
     # STAGE: COMPLETE
     elif st.session_state.stage == 'complete':
@@ -330,18 +377,99 @@ def show():
         
         all_data = st.session_state.activity_data
         
-        final_output = {
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "movement_speed": all_data.get('movement', {}).get('movement_speed', 0),
-            "stability": all_data.get('stability', {}).get('stability', 0),
-            "posture_deviation": all_data.get('stability', {}).get('posture_deviation', 0),
-        }
+        # Prepare data for Supabase
+        health_data = {}
         
+        # Sit-to-Stand data
+        if 'sit_stand' in all_data:
+            sit_stand = all_data['sit_stand']
+            health_data['sit_stand_movement_speed'] = sit_stand.get('movement_speed', 0)
+            health_data['sit_stand_stability'] = sit_stand.get('stability', 0)
+            health_data['sit_stand_motion_smoothness'] = sit_stand.get('motion_smoothness', 0)
+            health_data['sit_stand_posture_deviation'] = sit_stand.get('posture_deviation', 0)
+            health_data['sit_stand_micro_movements'] = sit_stand.get('micro_movements', 0)
+            health_data['sit_stand_range_of_motion'] = sit_stand.get('range_of_motion', 0)
+            health_data['sit_stand_acceleration_variance'] = sit_stand.get('acceleration_variance', 0)
+            health_data['sit_stand_frame_count'] = sit_stand.get('frame_count', 0)
+        
+        # Stability/Balance data (map to steady)
+        if 'stability' in all_data:
+            stability = all_data['stability']
+            health_data['steady_movement_speed'] = stability.get('movement_speed', 0)
+            health_data['steady_stability'] = stability.get('stability', 0)
+            health_data['steady_motion_smoothness'] = stability.get('motion_smoothness', 0)
+            health_data['steady_posture_deviation'] = stability.get('posture_deviation', 0)
+            health_data['steady_micro_movements'] = stability.get('micro_movements', 0)
+            health_data['steady_range_of_motion'] = stability.get('range_of_motion', 0)
+            health_data['steady_acceleration_variance'] = stability.get('acceleration_variance', 0)
+            health_data['steady_frame_count'] = stability.get('frame_count', 0)
+        
+        # Movement data (map to walk)
+        if 'movement' in all_data:
+            movement = all_data['movement']
+            health_data['walk_movement_speed'] = movement.get('movement_speed', 0)
+            health_data['walk_stability'] = movement.get('stability', 0)
+            health_data['walk_motion_smoothness'] = movement.get('motion_smoothness', 0)
+            health_data['walk_posture_deviation'] = movement.get('posture_deviation', 0)
+            health_data['walk_micro_movements'] = movement.get('micro_movements', 0)
+            health_data['walk_range_of_motion'] = movement.get('range_of_motion', 0)
+            health_data['walk_acceleration_variance'] = movement.get('acceleration_variance', 0)
+            health_data['walk_frame_count'] = movement.get('frame_count', 0)
+        
+        # Calculate averages
+        speeds = [v for k, v in health_data.items() if 'movement_speed' in k and v]
+        stabilities = [v for k, v in health_data.items() if 'stability' in k and v]
+        health_data['avg_movement_speed'] = sum(speeds) / len(speeds) if speeds else 0
+        health_data['avg_stability'] = sum(stabilities) / len(stabilities) if stabilities else 0
+        
+        # Save to Supabase
         if 'saved' not in st.session_state.results:
             user_id = st.session_state.get('user_id', 'default_user')
-            save_health_record(user_id, final_output)
-            st.session_state.results['saved'] = True
-            st.success("💾 Results saved successfully!")
+            
+            st.info(f"💾 Saving health check data for user: {user_id}...")
+            
+            # Display what we're about to save
+            with st.expander("📋 View Data Being Saved", expanded=False):
+                st.json(health_data)
+            
+            # Save to Supabase
+            try:
+                result = save_health_check(user_id, health_data)
+                
+                if result['success']:
+                    st.session_state.results['saved'] = True
+                    st.success(f"✅ {result['message']}")
+                    st.balloons()
+                    
+                    # Show saved data details
+                    if result.get('data'):
+                        st.info(f"📊 Saved to Supabase database at {datetime.now().strftime('%H:%M:%S')}")
+                        with st.expander("View Saved Record"):
+                            st.json(result['data'])
+                else:
+                    st.error(f"❌ Error saving to Supabase: {result['message']}")
+                    st.warning("⚠️ This might be a connection issue or RLS policy issue.")
+                    
+                    # Show troubleshooting info
+                    with st.expander("🔍 Troubleshooting Information"):
+                        st.write("**Possible causes:**")
+                        st.write("1. Supabase credentials not configured in .env file")
+                        st.write("2. Row Level Security (RLS) policies preventing insert")
+                        st.write("3. User ID mismatch with auth.uid()")
+                        st.write(f"4. Current user_id: `{user_id}`")
+                        st.write("5. Network connection issue")
+                    
+                    # Fallback to local JSON
+                    final_output = {
+                        "date": datetime.now().strftime("%Y-%m-%d"),
+                        "movement_speed": health_data.get('avg_movement_speed', 0),
+                        "stability": health_data.get('avg_stability', 0),
+                    }
+                    save_health_record(user_id, final_output)
+                    st.success("💾 Data saved to local storage as backup")
+            except Exception as e:
+                st.error(f"❌ Exception during save: {str(e)}")
+                st.code(str(e), language="text")
         
         # Final Summary Table
         st.markdown("### 📊 Complete Results Summary")

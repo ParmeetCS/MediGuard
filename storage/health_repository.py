@@ -34,19 +34,56 @@ def save_health_check(user_id: str, health_data: Dict[str, float], check_date: O
         data = {
             'user_id': user_id,
             'check_date': check_date.isoformat() if check_date else date.today().isoformat(),
-            'sit_stand_speed': health_data.get('sit_stand_speed'),
+            'check_timestamp': datetime.now().isoformat(),
+            
+            # OLD SCHEMA COLUMNS (for backward compatibility)
+            'sit_stand_speed': health_data.get('sit_stand_movement_speed'),
             'sit_stand_stability': health_data.get('sit_stand_stability'),
-            'walk_speed': health_data.get('walk_speed'),
+            'walk_speed': health_data.get('walk_movement_speed'),
             'walk_stability': health_data.get('walk_stability'),
-            'gait_symmetry': health_data.get('gait_symmetry'),
-            'hand_steadiness': health_data.get('hand_steadiness'),
-            'tremor_index': health_data.get('tremor_index'),
-            'coordination_score': health_data.get('coordination_score'),
-            'overall_mobility': health_data.get('overall_mobility')
+            'gait_symmetry': health_data.get('walk_motion_smoothness'),
+            'hand_steadiness': health_data.get('steady_stability'),
+            'tremor_index': health_data.get('steady_micro_movements'),
+            'coordination_score': health_data.get('avg_stability'),
+            'overall_mobility': health_data.get('avg_movement_speed'),
+            
+            # NEW SCHEMA - Sit-to-Stand Activity
+            'sit_stand_movement_speed': health_data.get('sit_stand_movement_speed'),
+            'sit_stand_stability': health_data.get('sit_stand_stability'),
+            'sit_stand_motion_smoothness': health_data.get('sit_stand_motion_smoothness'),
+            'sit_stand_posture_deviation': health_data.get('sit_stand_posture_deviation'),
+            'sit_stand_micro_movements': health_data.get('sit_stand_micro_movements'),
+            'sit_stand_range_of_motion': health_data.get('sit_stand_range_of_motion'),
+            'sit_stand_acceleration_variance': health_data.get('sit_stand_acceleration_variance'),
+            'sit_stand_frame_count': health_data.get('sit_stand_frame_count'),
+            
+            # NEW SCHEMA - Walking Activity
+            'walk_movement_speed': health_data.get('walk_movement_speed'),
+            'walk_stability': health_data.get('walk_stability'),
+            'walk_motion_smoothness': health_data.get('walk_motion_smoothness'),
+            'walk_posture_deviation': health_data.get('walk_posture_deviation'),
+            'walk_micro_movements': health_data.get('walk_micro_movements'),
+            'walk_range_of_motion': health_data.get('walk_range_of_motion'),
+            'walk_acceleration_variance': health_data.get('walk_acceleration_variance'),
+            'walk_frame_count': health_data.get('walk_frame_count'),
+            
+            # NEW SCHEMA - Steady Hold Activity
+            'steady_movement_speed': health_data.get('steady_movement_speed'),
+            'steady_stability': health_data.get('steady_stability'),
+            'steady_motion_smoothness': health_data.get('steady_motion_smoothness'),
+            'steady_posture_deviation': health_data.get('steady_posture_deviation'),
+            'steady_micro_movements': health_data.get('steady_micro_movements'),
+            'steady_range_of_motion': health_data.get('steady_range_of_motion'),
+            'steady_acceleration_variance': health_data.get('steady_acceleration_variance'),
+            'steady_frame_count': health_data.get('steady_frame_count'),
+            
+            # Overall Summary
+            'avg_movement_speed': health_data.get('avg_movement_speed'),
+            'avg_stability': health_data.get('avg_stability')
         }
         
-        # Upsert data (insert or update if exists for this user+date)
-        response = supabase.table('health_checks').upsert(data, on_conflict='user_id,check_date').execute()
+        # Insert data (always create new record, allowing multiple checks per day)
+        response = supabase.table('health_checks').insert(data).execute()
         
         return {
             'success': True,
