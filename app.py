@@ -15,6 +15,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Hide Streamlit's default page navigation
+st.markdown("""
+    <style>
+    [data-testid="stSidebarNav"] {
+        display: none;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # ========================================
 # CUSTOM CSS FOR HEALTHCARE THEME
 # ========================================
