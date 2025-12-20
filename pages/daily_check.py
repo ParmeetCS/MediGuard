@@ -1,467 +1,475 @@
 """
-Daily Health Check Page - MediGuard Drift AI
-Camera-based daily health assessment with movement analysis
+Daily Health Check - Premium Interactive Assessment
+Features: Professional UI, Interactive graphs, Data tables, Enhanced camera preview
 """
 
 import streamlit as st
+import cv2
 import time
-import random
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+from datetime import datetime
+import numpy as np
 
+# Import vision modules
+from vision.camera import camera_stream
+from vision.feature_extraction import extract_features
+
+# Import database module
+from storage.database import save_health_record, load_health_records
+
+# =======================
+# PREMIUM COLOR SCHEME
+# =======================
+PRIMARY = "#667EEA"        # Purple
+SECONDARY = "#764BA2"      # Deep Purple
+ACCENT = "#F093FB"         # Pink
+SUCCESS = "#4FACFE"        # Blue
+WARNING = "#FFA726"        # Orange
+DANGER = "#EF5350"         # Red
+BG_GRADIENT = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+
+# --- Helper Functions ---
+
+def load_history_df():
+    """Load history for the current user."""
+    user_id = st.session_state.get('user_id', 'default_user')
+    records = load_health_records(user_id)
+    return pd.DataFrame(records) if records else pd.DataFrame()
 
 def show():
-    """
-    Display the daily health check page with camera-based assessment
-    """
-    
-    # ========================================
-    # PAGE HEADER
-    # ========================================
+    # Enhanced Custom CSS
     st.markdown("""
-        <div style='text-align: center; padding: 1.5rem 0;'>
-            <h1 style='color: #4A90E2; font-size: 2.5rem;'>📋 Daily Health Check</h1>
-            <p style='font-size: 1.1rem; color: #666;'>
-                Quick 2-minute camera-based movement assessment
-            </p>
-        </div>
+    <style>
+        /* Global Styles */
+        .stApp {
+            background: linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%);
+        }
+        
+        /* Premium Button Styling */
+        .stButton>button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 30px;
+            padding: 15px 40px;
+            font-weight: 700;
+            font-size: 16px;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+        .stButton>button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 30px rgba(102, 126, 234, 0.5);
+        }
+        
+        /* Metric Cards */
+        .metric-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border-top: 4px solid #667eea;
+            margin: 15px 0;
+            transition: transform 0.3s ease;
+        }
+        .metric-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        /* Camera Preview Frame */
+        .camera-frame {
+            background: linear-gradient(145deg, #1e1e1e, #2d2d2d);
+            padding: 20px;
+            border-radius: 25px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.3),
+                        inset 0 0 0 2px rgba(255,255,255,0.1);
+            margin: 20px 0;
+        }
+        
+        /* Header Styling */
+        .activity-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 3rem 2rem;
+            border-radius: 25px;
+            color: white;
+            text-align: center;
+            margin-bottom: 2.5rem;
+            box-shadow: 0 15px 35px rgba(102, 126, 234, 0.3);
+        }
+        
+        /* Info Boxes */
+        .info-box {
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            padding: 2rem;
+            border-radius: 20px;
+            border-left: 5px solid #667eea;
+            margin: 1.5rem 0;
+        }
+        
+        /* Data Table Styling */
+        .dataframe {
+            border-radius: 15px;
+            overflow: hidden;
+        }
+    </style>
     """, unsafe_allow_html=True)
     
-    st.markdown("---")
+    st.markdown("""
+    <div class='activity-header'>
+        <h1 style='font-size: 3rem; margin: 0;'>🩺 Daily Health Check</h1>
+        <p style='font-size: 1.3rem; margin-top: 1rem; opacity: 0.95;'>AI-Powered Movement Analysis System</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # ========================================
-    # INITIALIZE SESSION STATE
-    # ========================================
-    if 'check_started' not in st.session_state:
-        st.session_state.check_started = False
-    if 'check_completed' not in st.session_state:
-        st.session_state.check_completed = False
-    if 'analysis_results' not in st.session_state:
-        st.session_state.analysis_results = {}
-    
-    # ========================================
-    # INTRODUCTION & INSTRUCTIONS
-    # ========================================
-    if not st.session_state.check_started:
-        st.markdown("### 👋 Welcome to Your Daily Health Check")
-        
-        st.info("""
-        **What is this?**
-        
-        This quick assessment uses your camera to observe simple movements and extract 
-        health-related metrics. No wearables needed—just you and your camera!
-        
-        💡 **Privacy Note:** All processing happens in your browser. No video is stored or transmitted.
-        """)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # ========================================
-        # WHAT WE'LL MEASURE
-        # ========================================
-        st.markdown("### 📊 What We'll Measure")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("""
-            <div style='background: #E3F2FD; padding: 1.5rem; border-radius: 10px; text-align: center;'>
-                <h3 style='color: #4A90E2; margin: 0;'>🏃</h3>
-                <h4>Movement Speed</h4>
-                <p style='font-size: 0.9rem; color: #666;'>
-                    How quickly you move during simple actions
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown("""
-            <div style='background: #E8F5E9; padding: 1.5rem; border-radius: 10px; text-align: center;'>
-                <h3 style='color: #50C878; margin: 0;'>⚖️</h3>
-                <h4>Stability</h4>
-                <p style='font-size: 0.9rem; color: #666;'>
-                    Balance and steadiness during movements
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown("""
-            <div style='background: #FFF3E0; padding: 1.5rem; border-radius: 10px; text-align: center;'>
-                <h3 style='color: #FF9800; margin: 0;'>🎯</h3>
-                <h4>Coordination</h4>
-                <p style='font-size: 0.9rem; color: #666;'>
-                    Smoothness and control of movements
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("---")
-        
-        # ========================================
-        # INSTRUCTIONS FOR ACTIONS
-        # ========================================
-        st.markdown("### 📝 What You'll Do (2 minutes)")
-        
-        st.markdown("""
-        We'll guide you through three simple actions. Make sure you have:
-        - ✅ Enough space to stand and move (about 3 feet)
-        - ✅ Good lighting
-        - ✅ Camera positioned to see your full body or upper body
-        """)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Action cards
-        action1, action2, action3 = st.columns(3)
-        
-        with action1:
-            st.markdown("""
-            <div style='background: #F0F7FF; padding: 1.5rem; border-radius: 10px; border-left: 4px solid #4A90E2;'>
-                <h4 style='color: #4A90E2; margin-top: 0;'>1️⃣ Sit-Stand Test</h4>
-                <p style='font-size: 0.9rem;'>
-                    <strong>Duration:</strong> 30 seconds<br>
-                    <strong>Action:</strong> Stand up from a chair and sit back down, repeat 5 times<br>
-                    <strong>Measures:</strong> Lower body strength, movement speed
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with action2:
-            st.markdown("""
-            <div style='background: #F0F7FF; padding: 1.5rem; border-radius: 10px; border-left: 4px solid #50C878;'>
-                <h4 style='color: #50C878; margin-top: 0;'>2️⃣ Short Walk</h4>
-                <p style='font-size: 0.9rem;'>
-                    <strong>Duration:</strong> 45 seconds<br>
-                    <strong>Action:</strong> Walk normally for a few steps, turn around, walk back<br>
-                    <strong>Measures:</strong> Gait pattern, balance, coordination
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with action3:
-            st.markdown("""
-            <div style='background: #F0F7FF; padding: 1.5rem; border-radius: 10px; border-left: 4px solid #FF9800;'>
-                <h4 style='color: #FF9800; margin-top: 0;'>3️⃣ Steady Hands</h4>
-                <p style='font-size: 0.9rem;'>
-                    <strong>Duration:</strong> 30 seconds<br>
-                    <strong>Action:</strong> Hold your hands steady in front of you<br>
-                    <strong>Measures:</strong> Fine motor control, tremor detection
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # ========================================
-        # START BUTTON
-        # ========================================
-        col1, col2, col3 = st.columns([1, 1, 1])
-        
-        with col2:
-            if st.button("🎥 Start Daily Health Check", type="primary", use_container_width=True):
-                st.session_state.check_started = True
-                st.session_state.check_completed = False
-                st.rerun()
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # ========================================
-        # TIPS
-        # ========================================
-        st.markdown("---")
-        st.markdown("### 💡 Quick Tips")
-        
-        tip_col1, tip_col2 = st.columns(2)
-        
-        with tip_col1:
-            st.markdown("""
-            **✅ Do:**
-            - Wear comfortable clothing
-            - Ensure camera can see you clearly
-            - Move at your natural, comfortable pace
-            - Relax and be yourself
-            """)
-        
-        with tip_col2:
-            st.markdown("""
-            **❌ Don't:**
-            - Rush through the movements
-            - Try to perform "perfectly"
-            - Worry if you need to pause
-            - Do anything that causes discomfort
-            """)
-    
-    # ========================================
-    # CHECK IN PROGRESS
-    # ========================================
-    elif st.session_state.check_started and not st.session_state.check_completed:
-        st.markdown("### 🎥 Camera Assessment in Progress")
-        
-        # ========================================
-        # CAMERA PLACEHOLDER
-        # ========================================
-        st.markdown("""
-        <div style='background: #1a1a1a; padding: 3rem; border-radius: 15px; text-align: center; 
-                    border: 3px dashed #4A90E2; margin: 2rem 0;'>
-            <h2 style='color: white; margin: 0;'>📷</h2>
-            <h3 style='color: #4A90E2; margin: 1rem 0;'>Webcam Feed</h3>
-            <p style='color: #999; margin: 0;'>
-                Camera placeholder - In production, live webcam feed would appear here
-            </p>
-            <p style='color: #666; font-size: 0.9rem; margin-top: 1rem;'>
-                🟢 Camera Active | Processing Movement Data
-            </p>
+    # Initialize Session State
+    if 'stage' not in st.session_state:
+        st.session_state.stage = 'intro'
+    if 'results' not in st.session_state:
+        st.session_state.results = {}
+    if 'activity_data' not in st.session_state:
+        st.session_state.activity_data = {}
+
+    # Enhanced Recording Function with Beautiful Camera Frame
+    def run_recording_session(activity_key, duration, instruction):
+        """Enhanced recording with premium camera preview."""
+        st.markdown(f"""
+        <div class='info-box'>
+            <h3 style='color: #667eea; margin: 0 0 10px 0;'>📋 Instructions</h3>
+            <p style='font-size: 1.1rem; margin: 0;'>{instruction}</p>
         </div>
         """, unsafe_allow_html=True)
         
-        # ========================================
-        # SIMULATED ANALYSIS PROCESS
-        # ========================================
-        st.markdown("### 🔄 Analysis Steps")
+        # Camera Preview Container
+        st.markdown("<div class='camera-frame'>", unsafe_allow_html=True)
+        cam_placeholder = st.empty()
+        st.markdown("</div>", unsafe_allow_html=True)
         
-        # Create progress tracking
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+        status_col1, status_col2 = st.columns([3, 1])
+        with status_col1:
+            progress_bar = st.progress(0, text="Ready to record...")
+        with status_col2:
+            status_text = st.empty()
         
-        steps = [
-            ("🏃 Analyzing Sit-Stand Movement...", 0.15),
-            ("📊 Extracting movement speed metrics...", 0.30),
-            ("🚶 Analyzing Walking Pattern...", 0.50),
-            ("⚖️ Calculating stability scores...", 0.65),
-            ("✋ Analyzing Hand Steadiness...", 0.80),
-            ("🎯 Computing coordination metrics...", 0.90),
-            ("✅ Finalizing Analysis...", 1.0)
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col1:
+            start_btn = st.button(f"🎥 Start Recording ({duration}s)", key=f"start_{activity_key}", use_container_width=True, type="primary")
+        with col2:
+            redo_btn = st.button(f"🔄 Redo Activity", key=f"redo_{activity_key}", use_container_width=True)
+        with col3:
+            skip_btn = st.button(f"⏭️ Skip", key=f"skip_{activity_key}", use_container_width=True)
+        
+        if redo_btn and activity_key in st.session_state.activity_data:
+            del st.session_state.activity_data[activity_key]
+            st.rerun()
+        
+        if skip_btn:
+            return "skip"
+        
+        if start_btn:
+            frames = []
+            frame_gen = camera_stream()
+            start_time = time.time()
+            
+            for frame in frame_gen:
+                elapsed = time.time() - start_time
+                if elapsed > duration:
+                    break
+                
+                if frame is not None:
+                    # Add recording indicator overlay
+                    h, w = frame.shape[:2]
+                    cv2.circle(frame, (30, 30), 15, (255, 0, 0), -1)
+                    cv2.putText(frame, "REC", (55, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                    
+                    cam_placeholder.image(frame, channels="RGB", use_container_width=True)
+                    frames.append(frame)
+                
+                progress = min(elapsed / duration, 1.0)
+                progress_bar.progress(progress, text=f"Recording... {int((1-progress)*duration)}s remaining")
+                status_text.metric("Frames", len(frames))
+            
+            progress_bar.progress(1.0, text="✅ Complete!")
+            cam_placeholder.success("📹 Recording saved successfully!")
+            time.sleep(1)
+            
+            return frames
+        
+        cam_placeholder.info("👆 Click 'Start Recording' to begin capturing video")
+        return None
+    
+    def create_interactive_graph(data, title, y_label):
+        """Create beautiful interactive Plotly graph."""
+        fig = go.Figure()
+        
+        # Add main line with gradient fill
+        fig.add_trace(go.Scatter(
+            y=data,
+            x=list(range(len(data))),
+            mode='lines',
+            name='Motion',
+            line=dict(color='#667eea', width=3),
+            fill='tozeroy',
+            fillcolor='rgba(102, 126, 234, 0.2)'
+        ))
+        
+        # Add smoothed trend line
+        if len(data) > 10:
+            window = min(10, len(data) // 5)
+            smoothed = pd.Series(data).rolling(window=window, center=True).mean()
+            fig.add_trace(go.Scatter(
+                y=smoothed,
+                x=list(range(len(data))),
+                mode='lines',
+                name='Trend',
+                line=dict(color='#f093fb', width=2, dash='dash')
+            ))
+        
+        fig.update_layout(
+            title=dict(text=title, font=dict(size=20, color='#2c3e50')),
+            xaxis_title="Frame Number",
+            yaxis_title=y_label,
+            template="plotly_white",
+            hovermode='x unified',
+            height=400,
+            font=dict(family="Inter, sans-serif"),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+        )
+        
+        return fig
+    
+    def display_metrics_with_data(feats, activity_name):
+        """Display metrics, graphs, and data tables."""
+        st.markdown(f"### 📊 {activity_name} - Analysis Results")
+        
+        # Key Metrics in Cards
+        col1, col2, col3, col4 = st.columns(4)
+        metrics_data = [
+            (col1, "🏃 Speed", feats.get('movement_speed', 0), "#667eea"),
+            (col2, "⚖️ Stability", feats.get('stability', 0), "#4facfe"),
+            (col3, "🎯 Smoothness", feats.get('motion_smoothness', 0), "#f093fb"),
+            (col4, "📏 Range", feats.get('range_of_motion', 0), "#ffa726")
         ]
         
-        for step_text, progress_value in steps:
-            status_text.markdown(f"**{step_text}**")
-            progress_bar.progress(progress_value)
-            time.sleep(0.8)  # Simulate processing time
-        
-        status_text.markdown("**✅ Analysis Complete!**")
-        time.sleep(0.5)
-        
-        # ========================================
-        # SAVE RESULTS TO DATABASE
-        # ========================================
-        from storage.health_repository import save_health_check
-        from datetime import date
-        
-        # Get analyzed results from session state (would come from video analysis)
-        health_data = st.session_state.get('vision_features', {})
-        
-        if not health_data:
-            st.error("❌ No health data available. Please complete the video recording steps.")
-        else:
-            user_id = st.session_state.get('user_id')
-            if not user_id:
-                st.error("❌ User not authenticated. Please log in again.")
-            else:
-                # Save to database
-                save_result = save_health_check(user_id, health_data, check_date=date.today())
-                
-                if save_result['success']:
-                    st.session_state.analysis_results = health_data
-                    st.session_state.check_completed = True
-                    time.sleep(0.5)
-                    st.rerun()
-                else:
-                    st.error(f"❌ {save_result['message']}")
-                    st.warning("Please ensure the database is properly configured and the health_checks table exists.")
-    
-    # ========================================
-    # RESULTS DISPLAY
-    # ========================================
-    elif st.session_state.check_completed:
-        st.success("✅ Daily Health Check Complete!")
-        
-        st.markdown("### 📊 Your Movement Analysis Results")
-        
-        results = st.session_state.analysis_results
+        for col, label, value, color in metrics_data:
+            with col:
+                st.markdown(f"""
+                <div style='background: white; padding: 1.5rem; border-radius: 15px; text-align: center; 
+                            box-shadow: 0 5px 15px rgba(0,0,0,0.08); border-top: 3px solid {color};'>
+                    <p style='margin: 0; color: #888; font-size: 0.9rem;'>{label}</p>
+                    <h2 style='margin: 10px 0; color: {color}; font-size: 2.5rem;'>{value}</h2>
+                </div>
+                """, unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # ========================================
-        # OVERALL SCORE
-        # ========================================
-        col1, col2, col3 = st.columns([1, 2, 1])
-        
-        with col2:
-            overall_score = results['overall_mobility']
-            score_color = "#50C878" if overall_score >= 85 else "#FF9800" if overall_score >= 70 else "#E74C3C"
+        # Interactive Graph
+        if 'frame_by_frame_motion' in feats and feats['frame_by_frame_motion']:
+            st.markdown("#### 📈 Real-Time Motion Analysis")
+            fig = create_interactive_graph(
+                feats['frame_by_frame_motion'],
+                f"{activity_name} - Frame-by-Frame Motion Intensity",
+                "Motion Intensity"
+            )
+            st.plotly_chart(fig, use_container_width=True)
             
-            st.markdown(f"""
-            <div style='background: linear-gradient(135deg, #4A90E2 0%, #50C878 100%); 
-                        padding: 2rem; border-radius: 15px; text-align: center; margin-bottom: 2rem;'>
-                <h3 style='color: white; margin: 0;'>Overall Mobility Score</h3>
-                <h1 style='color: white; font-size: 4rem; margin: 1rem 0;'>{overall_score}%</h1>
-                <p style='color: #E8F4F8; margin: 0;'>Based on today's movement assessment</p>
+            # Numerical Data Table
+            st.markdown("#### 📋 Detailed Metrics Table")
+            
+            # Create comprehensive data table
+            metrics_table = pd.DataFrame({
+                'Metric': [
+                    'Movement Speed',
+                    'Stability Score',
+                    'Motion Smoothness',
+                    'Posture Deviation',
+                    'Micro-movements',
+                    'Range of Motion',
+                    'Acceleration Variance',
+                    'Frames Analyzed'
+                ],
+                'Value': [
+                    feats.get('movement_speed', 0),
+                    feats.get('stability', 0),
+                    feats.get('motion_smoothness', 0),
+                    feats.get('posture_deviation', 0),
+                    feats.get('micro_movements', 0),
+                    feats.get('range_of_motion', 0),
+                    feats.get('acceleration_variance', 0),
+                    feats.get('frame_count', 0)
+                ],
+                'Unit': ['0-1', '0-1', '0-1', '0-1', '0-1', '0-1', '0-1', 'frames'],
+                'Status': [
+                    '✅ Good' if feats.get('movement_speed', 0) > 0.5 else '⚠️ Low',
+                    '✅ Good' if feats.get('stability', 0) > 0.7 else '⚠️ Moderate',
+                    '✅ Good' if feats.get('motion_smoothness', 0) > 0.6 else '⚠️ Moderate',
+                    '✅ Good' if feats.get('posture_deviation', 0) < 0.3 else '⚠️ High',
+                    '✅ Normal' if feats.get('micro_movements', 0) < 0.3 else '⚠️ High',
+                    '✅ Good' if feats.get('range_of_motion', 0) > 0.4 else '⚠️ Limited',
+                    '✅ Smooth' if feats.get('acceleration_variance', 0) < 0.4 else '⚠️ Variable',
+                    '✅'
+                ]
+            })
+            
+            st.dataframe(
+                metrics_table.style.set_properties(**{
+                    'background-color': 'white',
+                    'color': '#2c3e50',
+                    'border-color': '#e0e0e0'
+                }),
+                use_container_width=True,
+                height=350
+            )
+            
+            # Frame-by-frame data sample
+            with st.expander("🔍 View Frame-by-Frame Data (First 20 frames)"):
+                frame_data = pd.DataFrame({
+                    'Frame #': range(min(20, len(feats['frame_by_frame_motion']))),
+                    'Motion Intensity': feats['frame_by_frame_motion'][:20],
+                    'Timestamp (s)': [round(i/30, 2) for i in range(min(20, len(feats['frame_by_frame_motion'])))]
+                })
+                st.dataframe(frame_data, use_container_width=True)
+
+    # STAGE: INTRO
+    if st.session_state.stage == 'intro':
+        st.markdown("""
+        <div class='info-box'>
+            <h2 style='color: #667eea; margin-top: 0;'>Welcome! 👋</h2>
+            <p style='font-size: 1.1rem; line-height: 1.6;'>
+                Complete <strong>3 simple activities</strong> to get comprehensive insights into your movement health:
+            </p>
+            <div style='margin: 20px 0;'>
+                <p style='font-size: 1.05rem;'><strong>🪑 Sit-to-Stand:</strong> Measures leg strength and transition speed</p>
+                <p style='font-size: 1.05rem;'><strong>⚖️ Stability Test:</strong> Evaluates balance and posture control</p>
+                <p style='font-size: 1.05rem;'><strong>🏃 Movement Speed:</strong> Assesses coordination and activity level</p>
             </div>
-            """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🚀 Begin Health Assessment", type="primary", use_container_width=True):
+                st.session_state.stage = 'sit_stand'
+                st.session_state.activity_data = {}
+                st.rerun()
         
         st.markdown("---")
+        st.subheader("📈 Your Progress Over Time")
+        df = load_history_df()
+        if not df.empty and 'date' in df.columns:
+            fig = go.Figure()
+            for col in ['movement_speed', 'stability', 'posture_deviation']:
+                if col in df.columns:
+                    fig.add_trace(go.Scatter(x=df['date'], y=df[col], mode='lines+markers', name=col.replace('_', ' ').title()))
+            fig.update_layout(title="Historical Health Trends", template="plotly_white", height=400)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("📊 No history yet. Complete your first assessment to track progress!")
+
+    # STAGE: SIT TO STAND
+    elif st.session_state.stage == 'sit_stand':
+        st.header("1️⃣ Sit-to-Stand Assessment")
+        result = run_recording_session("sit_stand", 5, "Sit on a chair with arms crossed. Stand up fully, then sit back down. Repeat naturally.")
         
-        # ========================================
-        # DETAILED METRICS
-        # ========================================
-        st.markdown("### 📈 Detailed Movement Metrics")
+        if result == "skip":
+            st.session_state.stage = 'stability'
+            st.rerun()
+        elif result:
+            with st.spinner("🔬 Analyzing biomechanics..."):
+                feats = extract_features(result, activity_name="sit_to_stand")
+                st.session_state.activity_data['sit_stand'] = feats
+                display_metrics_with_data(feats, "Sit-to-Stand")
+                if st.button("✅ Continue to Stability Test", type="primary", use_container_width=True):
+                    st.session_state.stage = 'stability'
+                    st.rerun()
+
+    # STAGE: STABILITY
+    elif st.session_state.stage == 'stability':
+        st.header("2️⃣ Stability Assessment")
+        result = run_recording_session("stability", 5, "Stand still with feet together, hands at sides. Maintain balance and focus ahead.")
         
-        # Sit-Stand Metrics
-        st.markdown("#### 🪑 Sit-Stand Assessment")
-        metric_col1, metric_col2 = st.columns(2)
+        if result == "skip":
+            st.session_state.stage = 'movement'
+            st.rerun()
+        elif result:
+            with st.spinner("🔬 Analyzing balance patterns..."):
+                feats = extract_features(result, activity_name="stability")
+                st.session_state.activity_data['stability'] = feats
+                display_metrics_with_data(feats, "Stability")
+                if st.button("✅ Continue to Movement Test", type="primary", use_container_width=True):
+                    st.session_state.stage = 'movement'
+                    st.rerun()
+
+    # STAGE: MOVEMENT
+    elif st.session_state.stage == 'movement':
+        st.header("3️⃣ Movement Speed Assessment")
+        result = run_recording_session("movement", 5, "Walk in place energetically or perform coordinated arm movements.")
         
-        with metric_col1:
-            st.metric(
-                label="Average Speed per Repetition",
-                value=f"{results['sit_stand_speed']} seconds",
-                delta="-0.3s from last week" if random.random() > 0.5 else "+0.2s from last week",
-                delta_color="inverse"
-            )
+        if result == "skip":
+            st.session_state.stage = 'complete'
+            st.rerun()
+        elif result:
+            with st.spinner("🔬 Analyzing movement dynamics..."):
+                feats = extract_features(result, activity_name="general")
+                st.session_state.activity_data['movement'] = feats
+                display_metrics_with_data(feats, "Movement Speed")
+                if st.button("💾 Complete & Save Results", type="primary", use_container_width=True):
+                    st.session_state.stage = 'complete'
+                    st.rerun()
+
+    # STAGE: COMPLETE
+    elif st.session_state.stage == 'complete':
+        st.balloons()
+        st.markdown("""
+        <div class='activity-header'>
+            <h1 style='font-size: 3rem; margin: 0;'>✅ Assessment Complete!</h1>
+            <p style='font-size: 1.2rem; margin-top: 1rem;'>Excellent work! Here's your comprehensive health summary</p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        with metric_col2:
-            st.metric(
-                label="Stability Score",
-                value=f"{results['sit_stand_stability']}%",
-                delta="+2.1% from last week" if random.random() > 0.5 else "-1.5% from last week"
-            )
+        all_data = st.session_state.activity_data
         
-        st.markdown("<br>", unsafe_allow_html=True)
+        final_output = {
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "movement_speed": all_data.get('movement', {}).get('movement_speed', 0),
+            "stability": all_data.get('stability', {}).get('stability', 0),
+            "posture_deviation": all_data.get('stability', {}).get('posture_deviation', 0),
+        }
         
-        # Walking Metrics
-        st.markdown("#### 🚶 Walking Assessment")
-        walk_col1, walk_col2, walk_col3 = st.columns(3)
+        if 'saved' not in st.session_state.results:
+            user_id = st.session_state.get('user_id', 'default_user')
+            save_health_record(user_id, final_output)
+            st.session_state.results['saved'] = True
         
-        with walk_col1:
-            st.metric(
-                label="Walking Speed",
-                value=f"{results['walk_speed']} m/s",
-                delta="+0.1 m/s" if random.random() > 0.5 else "-0.05 m/s"
-            )
+        # Final Summary Table
+        st.markdown("### 📊 Complete Results Summary")
+        summary_df = pd.DataFrame([
+            {'Activity': 'Sit-to-Stand', 'Speed': all_data.get('sit_stand', {}).get('movement_speed', 0), 
+             'Stability': all_data.get('sit_stand', {}).get('stability', 0)},
+            {'Activity': 'Balance', 'Speed': all_data.get('stability', {}).get('movement_speed', 0), 
+             'Stability': all_data.get('stability', {}).get('stability', 0)},
+            {'Activity': 'Movement', 'Speed': all_data.get('movement', {}).get('movement_speed', 0), 
+             'Stability': all_data.get('movement', {}).get('stability', 0)}
+        ])
+        st.dataframe(summary_df, use_container_width=True, height=150)
         
-        with walk_col2:
-            st.metric(
-                label="Balance Stability",
-                value=f"{results['walk_stability']}%",
-                delta="+1.8%" if random.random() > 0.5 else "-0.9%"
-            )
+        # Comparison Chart
+        fig = px.bar(summary_df, x='Activity', y=['Speed', 'Stability'], barmode='group',
+                     title="Performance Comparison Across Activities",
+                     color_discrete_sequence=['#667eea', '#4facfe'])
+        fig.update_layout(template="plotly_white", height=400)
+        st.plotly_chart(fig, use_container_width=True)
         
-        with walk_col3:
-            st.metric(
-                label="Gait Symmetry",
-                value=f"{results['gait_symmetry']}%",
-                delta="+3.2%" if random.random() > 0.5 else "-1.1%"
-            )
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Hand Steadiness Metrics
-        st.markdown("#### ✋ Hand Steadiness Assessment")
-        hand_col1, hand_col2, hand_col3 = st.columns(3)
-        
-        with hand_col1:
-            st.metric(
-                label="Steadiness Score",
-                value=f"{results['hand_steadiness']}%",
-                delta="+2.5%" if random.random() > 0.5 else "-1.2%"
-            )
-        
-        with hand_col2:
-            st.metric(
-                label="Tremor Index",
-                value=f"{results['tremor_index']}",
-                delta="-0.3" if random.random() > 0.5 else "+0.2",
-                delta_color="inverse",
-                help="Lower values indicate less tremor (better)"
-            )
-        
-        with hand_col3:
-            st.metric(
-                label="Coordination Score",
-                value=f"{results['coordination_score']}%",
-                delta="+1.9%" if random.random() > 0.5 else "-0.8%"
-            )
-        
-        st.markdown("---")
-        
-        # ========================================
-        # INSIGHTS SECTION
-        # ========================================
-        st.markdown("### 💡 Today's Insights")
-        
-        insight_col1, insight_col2 = st.columns(2)
-        
-        with insight_col1:
-            st.markdown("""
-            <div style='background: #E8F5E9; padding: 1.5rem; border-radius: 10px; border-left: 4px solid #50C878;'>
-                <h4 style='color: #50C878; margin-top: 0;'>✅ Positive Observations</h4>
-                <ul style='margin: 0; padding-left: 1.5rem;'>
-                    <li>Movement speed is within healthy range</li>
-                    <li>Good stability during standing activities</li>
-                    <li>Hand coordination shows strong control</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with insight_col2:
-            st.markdown("""
-            <div style='background: #FFF3E0; padding: 1.5rem; border-radius: 10px; border-left: 4px solid #FF9800;'>
-                <h4 style='color: #FF9800; margin-top: 0;'>📌 Areas to Monitor</h4>
-                <ul style='margin: 0; padding-left: 1.5rem;'>
-                    <li>Track walking speed trend over next week</li>
-                    <li>Compare stability scores to baseline</li>
-                    <li>Continue daily assessments for patterns</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # ========================================
-        # COMPLETION MESSAGE
-        # ========================================
-        st.info("""
-        🎉 **Great job completing your daily check!**
-        
-        These metrics give us a snapshot of your movement health today. As you continue 
-        daily checks, our AI will learn your unique patterns and alert you to any gradual 
-        changes that might indicate health drift.
-        
-        💡 **Tip:** Consistency is key! Try to do your daily check at the same time each day 
-        for the most accurate drift detection.
-        """)
-        
-        st.markdown("---")
-        
-        # ========================================
-        # ACTION BUTTONS
-        # ========================================
-        st.markdown("### 🎯 What's Next?")
-        
-        btn_col1, btn_col2, btn_col3 = st.columns(3)
-        
-        with btn_col1:
-            if st.button("📊 View Dashboard", use_container_width=True, type="primary"):
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🏠 New Assessment", use_container_width=True, type="primary"):
+                st.session_state.stage = 'intro'
+                st.session_state.results = {}
+                st.session_state.activity_data = {}
+                st.rerun()
+        with col2:
+            if st.button("📊 View Dashboard", use_container_width=True):
                 st.session_state.current_page = "Dashboard"
                 st.rerun()
-        
-        with btn_col2:
-            if st.button("💬 Chat with AI", use_container_width=True):
-                st.session_state.current_page = "AI Health Chat"
-                st.rerun()
-        
-        with btn_col3:
-            if st.button("🔄 New Check", use_container_width=True):
-                st.session_state.check_started = False
-                st.session_state.check_completed = False
-                st.rerun()
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # ========================================
-        # DISCLAIMER
-        # ========================================
-        st.warning("""
-        📋 **Important Note:** These metrics are for tracking changes over time, not for 
-        diagnosing health conditions. If you notice significant changes or have concerns 
-        about your movement or balance, please consult a healthcare professional.
-        """)
