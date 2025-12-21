@@ -15,8 +15,31 @@ import streamlit as st
 # ========================================
 load_dotenv()
 
-# Get Google API key from environment
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+def get_env_var(key: str, default: str = None) -> str:
+    """
+    Get environment variable from Streamlit secrets or .env
+    
+    Args:
+        key (str): Environment variable key
+        default (str): Default value if not found
+    
+    Returns:
+        str: Environment variable value
+    """
+    # Try Streamlit secrets first (for deployed apps)
+    try:
+        if hasattr(st, 'secrets') and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    
+    # Fall back to os.getenv (for local development)
+    return os.getenv(key, default)
+
+
+# Get Google API key from environment or Streamlit secrets
+GOOGLE_API_KEY = get_env_var("GOOGLE_API_KEY")
 
 # ========================================
 # GEMINI MODEL CONFIGURATION

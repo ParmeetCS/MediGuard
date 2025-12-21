@@ -11,12 +11,43 @@ from typing import Dict, Tuple
 # ========================================
 # LOAD ENVIRONMENT VARIABLES
 # ========================================
-# Load environment variables from .env file
+# Load environment variables from .env file (for local development)
 load_dotenv()
 
-# Get Supabase credentials from environment
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+# Try to import streamlit for secrets support (when deployed)
+try:
+    import streamlit as st
+    USE_STREAMLIT_SECRETS = True
+except ImportError:
+    USE_STREAMLIT_SECRETS = False
+
+
+def get_env_var(key: str, default: str = None) -> str:
+    """
+    Get environment variable from Streamlit secrets or .env
+    
+    Args:
+        key (str): Environment variable key
+        default (str): Default value if not found
+    
+    Returns:
+        str: Environment variable value
+    """
+    # Try Streamlit secrets first (for deployed apps)
+    if USE_STREAMLIT_SECRETS:
+        try:
+            if hasattr(st, 'secrets') and key in st.secrets:
+                return st.secrets[key]
+        except Exception:
+            pass
+    
+    # Fall back to os.getenv (for local development)
+    return os.getenv(key, default)
+
+
+# Get Supabase credentials from environment or Streamlit secrets
+SUPABASE_URL = get_env_var("SUPABASE_URL")
+SUPABASE_ANON_KEY = get_env_var("SUPABASE_ANON_KEY")
 
 # ========================================
 # HELPER FUNCTIONS
@@ -28,14 +59,18 @@ def get_redirect_url() -> str:
     Returns:
         str: Redirect URL for email confirmation
     """
-    # Check if running on Streamlit Cloud
+    # Try to get from Streamlit secrets first (deployed environment)
+    deployed_url = get_env_var("STREAMLIT_APP_URL")
+    
+    if deployed_url and "streamlit.app" in deployed_url:
+        return deployed_url
+    
+    # Check if running on Streamlit Cloud by other indicators
     if os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_RUNTIME_ENV"):
-        # Try to get the deployed URL from environment
-        deployed_url = os.getenv("STREAMLIT_APP_URL")
         if deployed_url:
             return deployed_url
-        # Fallback: Return a placeholder that should be set in Supabase
-        return "https://your-app.streamlit.app"
+        # Fallback
+        return "https://mediguard-feb6sybhmnworzdxmyngid.streamlit.app"
     
     # Local development
     return "http://localhost:8501"
