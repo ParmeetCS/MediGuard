@@ -19,6 +19,29 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 
 # ========================================
+# HELPER FUNCTIONS
+# ========================================
+def get_redirect_url() -> str:
+    """
+    Get the appropriate redirect URL based on environment
+    
+    Returns:
+        str: Redirect URL for email confirmation
+    """
+    # Check if running on Streamlit Cloud
+    if os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_RUNTIME_ENV"):
+        # Try to get the deployed URL from environment
+        deployed_url = os.getenv("STREAMLIT_APP_URL")
+        if deployed_url:
+            return deployed_url
+        # Fallback: Return a placeholder that should be set in Supabase
+        return "https://your-app.streamlit.app"
+    
+    # Local development
+    return "http://localhost:8501"
+
+
+# ========================================
 # INITIALIZE SUPABASE CLIENT
 # ========================================
 def get_supabase_client() -> Client:
@@ -59,13 +82,14 @@ except ValueError as e:
 # AUTHENTICATION FUNCTIONS
 # ========================================
 
-def sign_up(email: str, password: str) -> Tuple[bool, str, Dict]:
+def sign_up(email: str, password: str, redirect_url: str = None) -> Tuple[bool, str, Dict]:
     """
     Register a new user with email and password
     
     Args:
         email (str): User's email address
         password (str): User's password (minimum 6 characters recommended)
+        redirect_url (str, optional): URL to redirect after email confirmation
     
     Returns:
         Tuple[bool, str, Dict]: 
@@ -94,11 +118,20 @@ def sign_up(email: str, password: str) -> Tuple[bool, str, Dict]:
         return False, "Please enter a valid email address.", {}
     
     try:
-        # Attempt to sign up the user
-        response = supabase.auth.sign_up({
+        # Prepare sign up options
+        signup_data = {
             "email": email,
             "password": password
-        })
+        }
+        
+        # Add redirect URL if provided (for email confirmation)
+        if redirect_url:
+            signup_data["options"] = {
+                "email_redirect_to": redirect_url
+            }
+        
+        # Attempt to sign up the user
+        response = supabase.auth.sign_up(signup_data)
         
         # Check if sign up was successful
         if response.user:

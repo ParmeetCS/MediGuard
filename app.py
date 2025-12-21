@@ -4,7 +4,7 @@ Entry point for the Streamlit application
 """
 
 import streamlit as st
-from auth.supabase_auth import sign_in, sign_up, sign_out, is_configured
+from auth.supabase_auth import sign_in, sign_up, sign_out, is_configured, get_redirect_url
 
 # ========================================
 # PAGE CONFIGURATION
@@ -165,7 +165,9 @@ if not st.session_state.authenticated:
                     st.error("❌ Password must be at least 6 characters long.")
                 else:
                     with st.spinner("Creating your account..."):
-                        success, message, user_data = sign_up(email_signup, password_signup)
+                        # Get the appropriate redirect URL for email confirmation
+                        redirect_url = get_redirect_url()
+                        success, message, user_data = sign_up(email_signup, password_signup, redirect_url)
                         
                         if success:
                             st.success(f"✅ {message}")
