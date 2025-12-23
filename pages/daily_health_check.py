@@ -1,7 +1,7 @@
 """
 Daily Health Check - MediGuard Drift AI
 Movement analysis and health assessment page with person detection
-Uses OpenCV for camera access
+Uses OpenCV locally, WebRTC on cloud
 """
 
 import streamlit as st
@@ -13,6 +13,7 @@ from datetime import datetime
 import numpy as np
 from PIL import Image
 import io
+import os
 
 # Try to import cv2
 try:
@@ -22,6 +23,15 @@ except ImportError as e:
     CV2_AVAILABLE = False
     cv2 = None
     print(f"Warning: OpenCV not available - {e}")
+
+# Try to import WebRTC
+try:
+    from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
+    import av
+    WEBRTC_AVAILABLE = True
+except ImportError as e:
+    WEBRTC_AVAILABLE = False
+    print(f"Warning: WebRTC not available - {e}")
 
 # Import vision modules with fallback
 try:
@@ -36,7 +46,13 @@ except ImportError as e:
     PersonDetector = None
     print(f"Warning: Vision modules not available - {e}")
 
-import os
+# Detect if running on cloud
+IS_CLOUD = (
+    os.environ.get('STREAMLIT_SHARING_MODE') == 'true' or
+    os.environ.get('STREAMLIT_SERVER_HEADLESS') == 'true' or
+    os.path.exists('/mount/src') or
+    os.environ.get('HOME', '').startswith('/home/appuser')
+)
 
 # Import database module
 from storage.database import save_health_record, load_health_records
@@ -47,7 +63,6 @@ def extract_features_from_frames(frames: list, activity_name: str = "general") -
     """
     Extract features from a list of video frames (numpy arrays from WebRTC or OpenCV).
     Performs real motion analysis on continuous video frames.
-    
     Args:
         frames: List of numpy arrays (BGR or RGB format)
         activity_name: Type of activity for context-aware analysis
@@ -190,19 +205,24 @@ def show():
     
     st.markdown("---")
     
-    # Check if OpenCV and vision modules are available
-    if not CV2_AVAILABLE:
-        st.error("❌ OpenCV is not available. Please install: `pip install opencv-python`")
-        st.stop()
-    
-    if not VISION_AVAILABLE:
-        st.warning("⚠️ Vision modules not fully available. Some features may be limited.")
+    # Determine if we should use WebRTC (cloud) or OpenCV (local)
+    USE_WEBRTC = IS_CLOUD and WEBRTC_AVAILABLE
     
     # Camera status in sidebar
     with st.sidebar:
         st.markdown("### 📷 Camera Status")
-        st.caption(f"OpenCV: {'✅ Available' if CV2_AVAILABLE else '❌ Not Available'}")
-        st.caption(f"Vision: {'✅ Available' if VISION_AVAILABLE else '❌ Not Available'}")
+        st.caption(f"Mode: {'🌐 Cloud (WebRTC)' if USE_WEBRTC else '💻 Local (OpenCV)'}")
+        st.caption(f"OpenCV: {'✅' if CV2_AVAILABLE else '❌'}")
+        st.caption(f"WebRTC: {'✅' if WEBRTC_AVAILABLE else '❌'}")
+        st.caption(f"Vision: {'✅' if VISION_AVAILABLE else '❌'}")
+        
+        # Manual override
+        if st.checkbox("Force WebRTC Mode", value=False, key="force_webrtc"):
+            USE_WEBRTC = WEBRTC_AVAILABLE
+    
+    # Show mode info
+    if USE_WEBRTC:
+        st.info("🌐 **Cloud Mode** - Using browser camera via WebRTC")
     
     # Initialize Session State FIRST
     if 'stage' not in st.session_state:
@@ -217,6 +237,9 @@ def show():
         st.session_state.stability_complete = False
     if 'movement_complete' not in st.session_state:
         st.session_state.movement_complete = False
+    # WebRTC frame storage
+    if 'webrtc_frames' not in st.session_state:
+        st.session_state.webrtc_frames = {}
     
     # Debug panel (can be toggled) - Now safe to access session state
     with st.expander("🔧 Debug Info", expanded=False):
@@ -227,6 +250,8 @@ def show():
                  f"Stability: `{st.session_state.stability_complete}`, "
                  f"Movement: `{st.session_state.movement_complete}`")
         st.write(f"**Activity Data Keys:** `{list(st.session_state.activity_data.keys())}`")
+        st.write(f"**Cloud Detected:** `{IS_CLOUD}`")
+        st.write(f"**Using WebRTC:** `{USE_WEBRTC}`")
         
         if st.button("🔄 Reset Health Check", key="reset_hc"):
             st.session_state.stage = 'intro'
@@ -235,13 +260,123 @@ def show():
             st.session_state.sit_stand_complete = False
             st.session_state.stability_complete = False
             st.session_state.movement_complete = False
+            st.session_state.webrtc_frames = {}
             st.rerun()
 
-    # Recording Function using OpenCV
+    # WebRTC Video Processor Class
+    class VideoFrameProcessor(VideoProcessorBase):
+        def __init__(self):
+            self.frames = []
+            self.recording = False
+            self.frame_count = 0
+            
+        def recv(self, frame):
+            img = frame.to_ndarray(format="bgr24")
+            
+            # Capture frames when recording
+            if self.recording:
+                self.frame_count += 1
+                # Sample every 3rd frame
+                if self.frame_count % 3 == 0:
+                    self.frames.append(img.copy())
+            
+            # Add indicator
+            if self.recording:
+                cv2.circle(img, (30, 30), 15, (0, 0, 255), -1)
+                cv2.putText(img, f"REC ({len(self.frames)} frames)", (50, 40), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            
+            return av.VideoFrame.from_ndarray(img, format="bgr24")
+    
+    # WebRTC recording function
+    def run_webrtc_session(activity_key, duration, instruction):
+        """WebRTC-based recording for cloud deployment."""
+        st.markdown(f"**Instructions:** {instruction}")
+        
+        # Free TURN servers for reliable connection
+        rtc_config = {
+            "iceServers": [
+                {"urls": ["stun:stun.l.google.com:19302"]},
+                {"urls": ["stun:stun1.l.google.com:19302"]},
+                {"urls": ["stun:stun2.l.google.com:19302"]},
+                {"urls": ["stun:stun.services.mozilla.com"]},
+                {
+                    "urls": "turn:openrelay.metered.ca:80",
+                    "username": "openrelayproject",
+                    "credential": "openrelayproject"
+                },
+                {
+                    "urls": "turn:openrelay.metered.ca:443",
+                    "username": "openrelayproject", 
+                    "credential": "openrelayproject"
+                },
+                {
+                    "urls": "turn:openrelay.metered.ca:443?transport=tcp",
+                    "username": "openrelayproject",
+                    "credential": "openrelayproject"
+                }
+            ]
+        }
+        
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            if st.button("⏭️ Skip", key=f"skip_{activity_key}"):
+                return "skip"
+        
+        # Create WebRTC streamer
+        ctx = webrtc_streamer(
+            key=f"cam_{activity_key}",
+            mode=WebRtcMode.SENDRECV,
+            rtc_configuration=rtc_config,
+            video_processor_factory=VideoFrameProcessor,
+            media_stream_constraints={"video": {"width": 640, "height": 480}, "audio": False},
+            async_processing=True,
+        )
+        
+        if ctx.video_processor:
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button(f"🔴 Start Recording", key=f"start_{activity_key}", type="primary"):
+                    ctx.video_processor.frames = []
+                    ctx.video_processor.frame_count = 0
+                    ctx.video_processor.recording = True
+                    st.session_state[f'{activity_key}_recording'] = True
+            
+            with col2:
+                if st.button(f"⏹️ Stop Recording", key=f"stop_{activity_key}"):
+                    ctx.video_processor.recording = False
+                    st.session_state[f'{activity_key}_recording'] = False
+            
+            with col3:
+                if st.button(f"📊 Analyze", key=f"analyze_{activity_key}"):
+                    if ctx.video_processor.frames:
+                        frames = ctx.video_processor.frames.copy()
+                        ctx.video_processor.frames = []
+                        ctx.video_processor.recording = False
+                        st.success(f"✅ Captured {len(frames)} frames!")
+                        return frames
+                    else:
+                        st.warning("No frames captured. Start recording first.")
+            
+            # Status
+            if ctx.video_processor.recording:
+                st.markdown("### 🔴 Recording...")
+            
+            frame_count = len(ctx.video_processor.frames) if ctx.video_processor else 0
+            st.caption(f"Frames: {frame_count}")
+        
+        return None
+
+    # Recording Function - chooses between WebRTC and OpenCV
     def run_recording_session(activity_key, duration, instruction):
-        """Recording session with camera preview using OpenCV."""
+        """Recording session - uses WebRTC on cloud, OpenCV locally."""
         st.info(f"📋 **Instructions:** {instruction}")
-        return run_opencv_camera_session(activity_key, duration, instruction)
+        
+        if USE_WEBRTC:
+            return run_webrtc_session(activity_key, duration, instruction)
+        else:
+            return run_opencv_camera_session(activity_key, duration, instruction)
     
     def run_opencv_camera_session(activity_key, duration, instruction):
         """OpenCV-based camera recording for local deployments."""
@@ -802,8 +937,11 @@ def show():
             st.rerun()
         elif result:
             with st.spinner("🔬 Analyzing biomechanics..."):
-                # Use OpenCV feature extraction
-                feats = extract_features(result, activity_name="sit_to_stand")
+                # Use appropriate feature extraction based on mode
+                if USE_WEBRTC:
+                    feats = extract_features_from_frames(result, activity_name="sit_to_stand")
+                else:
+                    feats = extract_features(result, activity_name="sit_to_stand")
                 st.session_state.activity_data['sit_stand'] = feats
                 st.session_state.sit_stand_complete = True
             
@@ -826,8 +964,11 @@ def show():
             st.rerun()
         elif result:
             with st.spinner("🔬 Analyzing balance patterns..."):
-                # Use OpenCV feature extraction
-                feats = extract_features(result, activity_name="stability")
+                # Use appropriate feature extraction based on mode
+                if USE_WEBRTC:
+                    feats = extract_features_from_frames(result, activity_name="stability")
+                else:
+                    feats = extract_features(result, activity_name="stability")
                 st.session_state.activity_data['stability'] = feats
                 st.session_state.stability_complete = True
         
@@ -850,8 +991,11 @@ def show():
             st.rerun()
         elif result:
             with st.spinner("🔬 Analyzing movement dynamics..."):
-                # Use OpenCV feature extraction
-                feats = extract_features(result, activity_name="movement")
+                # Use appropriate feature extraction based on mode
+                if USE_WEBRTC:
+                    feats = extract_features_from_frames(result, activity_name="movement")
+                else:
+                    feats = extract_features(result, activity_name="movement")
                 st.session_state.activity_data['movement'] = feats
                 st.session_state.movement_complete = True
         
