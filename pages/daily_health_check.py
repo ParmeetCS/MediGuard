@@ -891,6 +891,16 @@ def show():
         # Final Summary Table with User-Friendly Interpretations
         st.markdown("### 📊 Complete Results Summary")
         
+        # Initialize summary_df before try block to ensure it's always defined
+        summary_df = pd.DataFrame([
+            {'Activity': 'Sit-to-Stand', 'Speed': all_data.get('sit_stand', {}).get('movement_speed', 0), 
+             'Stability': all_data.get('sit_stand', {}).get('stability', 0)},
+            {'Activity': 'Balance', 'Speed': all_data.get('stability', {}).get('movement_speed', 0), 
+             'Stability': all_data.get('stability', {}).get('stability', 0)},
+            {'Activity': 'Movement', 'Speed': all_data.get('movement', {}).get('movement_speed', 0), 
+             'Stability': all_data.get('movement', {}).get('stability', 0)}
+        ])
+        
         try:
             from agents.ai_integration import rate_metric_value
             
@@ -1267,26 +1277,18 @@ def show():
                 
                 # Multiple Low Scores Warning
                 if len(low_scores) >= 3:
-                    st.markdown("""
-                    <div style='background: #b71c1c; color: white; padding: 25px; border-radius: 12px; margin: 20px 0;'>
-                        <h3 style='color: white; margin-top: 0;'>🚨 Multiple Areas of Concern Detected</h3>
-                        <p style='font-size: 1.1rem;'>You have several scores in the "Needs Attention" range. 
-                        This pattern may suggest systemic health issues that require comprehensive evaluation.</p>
-                        
-                        <h4 style='color: #ffcdd2;'>Conditions to discuss with your doctor:</h4>
-                        <ul style='color: white;'>
-                            <li><b>🧠 Neurological Conditions</b> - Parkinson's, MS, early dementia, stroke effects</li>
-                            <li><b>❤️ Cardiovascular Problems</b> - Heart failure, arrhythmias, circulation issues</li>
-                            <li><b>🦴 Musculoskeletal Issues</b> - Severe arthritis, osteoporosis, spinal problems</li>
-                            <li><b>🩺 Metabolic Disorders</b> - Uncontrolled diabetes, thyroid issues, vitamin deficiencies</li>
-                            <li><b>👴 Geriatric Syndromes</b> - Frailty, fall risk syndrome</li>
-                        </ul>
-                        
-                        <p style='color: #ffcdd2; font-weight: bold; font-size: 1.2rem; margin-top: 15px;'>
-                            ⚕️ IMPORTANT: Please schedule an appointment with your healthcare provider soon!
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.error("""**🚨 Multiple Areas of Concern Detected**
+                    
+You have several scores in the "Needs Attention" range. This pattern may suggest systemic health issues that require comprehensive evaluation.""")
+                    
+                    st.warning("""**Conditions to discuss with your doctor:**
+- 🧠 **Neurological Conditions** - Parkinson's, MS, early dementia, stroke effects
+- ❤️ **Cardiovascular Problems** - Heart failure, arrhythmias, circulation issues
+- 🦴 **Musculoskeletal Issues** - Severe arthritis, osteoporosis, spinal problems
+- 🩺 **Metabolic Disorders** - Uncontrolled diabetes, thyroid issues, vitamin deficiencies
+- 👴 **Geriatric Syndromes** - Frailty, fall risk syndrome
+
+⚕️ **IMPORTANT:** Please schedule an appointment with your healthcare provider soon!""")
                 
                 # Personalized Recommendations
                 st.markdown("### 💊 Personalized Recommendations")
@@ -1357,15 +1359,8 @@ def show():
                         """, unsafe_allow_html=True)
                 
         except Exception as e:
-            # Fallback to simple table if there's an error
-            summary_df = pd.DataFrame([
-                {'Activity': 'Sit-to-Stand', 'Speed': all_data.get('sit_stand', {}).get('movement_speed', 0), 
-                 'Stability': all_data.get('sit_stand', {}).get('stability', 0)},
-                {'Activity': 'Balance', 'Speed': all_data.get('stability', {}).get('movement_speed', 0), 
-                 'Stability': all_data.get('stability', {}).get('stability', 0)},
-                {'Activity': 'Movement', 'Speed': all_data.get('movement', {}).get('movement_speed', 0), 
-                 'Stability': all_data.get('movement', {}).get('stability', 0)}
-            ])
+            # Fallback to simple table if there's an error with ratings
+            st.warning(f"⚠️ Could not load detailed ratings: {e}")
             st.dataframe(summary_df, use_container_width=True, height=150)
         
         # Comparison Chart
