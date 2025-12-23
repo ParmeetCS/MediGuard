@@ -318,6 +318,54 @@ def generate_health_report_pdf(query: str, response: str, sources: list, user_na
     
     elements.append(Spacer(1, 0.15*inch))
     
+    # ===== AI-EXTRACTED REPORT ANALYSIS SECTION =====
+    ai_key_findings = ctx.get('ai_key_findings', '')
+    ai_positive_aspects = ctx.get('ai_positive_aspects', '')
+    ai_abnormal_values = ctx.get('ai_abnormal_values', '')
+    ai_health_recommendations = ctx.get('ai_health_recommendations', '')
+    ai_next_steps = ctx.get('ai_next_steps', '')
+    
+    # Only show this section if there's any AI-extracted data
+    if any([ai_key_findings, ai_positive_aspects, ai_abnormal_values, ai_health_recommendations, ai_next_steps]):
+        elements.append(Paragraph("🤖 AI-EXTRACTED REPORT ANALYSIS", section_header_style))
+        elements.append(Spacer(1, 0.1*inch))
+        
+        # Key Findings
+        if ai_key_findings:
+            elements.append(Paragraph("<b>🔍 Key Findings:</b>", subsection_style))
+            findings_text = str(ai_key_findings)[:400] + ('...' if len(str(ai_key_findings)) > 400 else '')
+            elements.append(Paragraph(findings_text, small_body_style))
+            elements.append(Spacer(1, 0.08*inch))
+        
+        # Positive Aspects
+        if ai_positive_aspects:
+            elements.append(Paragraph("<b>✅ Positive Aspects:</b>", subsection_style))
+            positive_text = str(ai_positive_aspects)[:400] + ('...' if len(str(ai_positive_aspects)) > 400 else '')
+            elements.append(Paragraph(positive_text, small_body_style))
+            elements.append(Spacer(1, 0.08*inch))
+        
+        # Abnormal Values (if any)
+        if ai_abnormal_values:
+            elements.append(Paragraph("<b>⚠️ Abnormal Values:</b>", subsection_style))
+            abnormal_text = str(ai_abnormal_values)[:300] + ('...' if len(str(ai_abnormal_values)) > 300 else '')
+            elements.append(Paragraph(abnormal_text, small_body_style))
+            elements.append(Spacer(1, 0.08*inch))
+        
+        # Health Recommendations from Report
+        if ai_health_recommendations:
+            elements.append(Paragraph("<b>💡 Report Recommendations:</b>", subsection_style))
+            rec_text = str(ai_health_recommendations)[:400] + ('...' if len(str(ai_health_recommendations)) > 400 else '')
+            elements.append(Paragraph(rec_text, small_body_style))
+            elements.append(Spacer(1, 0.08*inch))
+        
+        # Next Steps from Report
+        if ai_next_steps:
+            elements.append(Paragraph("<b>👣 Suggested Next Steps:</b>", subsection_style))
+            steps_text = str(ai_next_steps)[:300] + ('...' if len(str(ai_next_steps)) > 300 else '')
+            elements.append(Paragraph(steps_text, small_body_style))
+        
+        elements.append(Spacer(1, 0.15*inch))
+    
     # ===== AI ANALYSIS SECTION =====
     elements.append(Paragraph("🤖 AI HEALTH ANALYSIS", section_header_style))
     elements.append(Spacer(1, 0.1*inch))
@@ -1644,7 +1692,40 @@ def show():
                                     value=f"{severity_color} {severity}"
                                 )
                             
-                            # 2. Drift Analysis Section
+                            # 2. AI-Extracted Report Analysis Section (from uploaded medical reports)
+                            ctx_data = health_data.get('context_data', {})
+                            ai_key_findings = ctx_data.get('ai_key_findings', '')
+                            ai_positive_aspects = ctx_data.get('ai_positive_aspects', '')
+                            ai_abnormal_values = ctx_data.get('ai_abnormal_values', '')
+                            ai_health_recommendations = ctx_data.get('ai_health_recommendations', '')
+                            ai_next_steps = ctx_data.get('ai_next_steps', '')
+                            
+                            if any([ai_key_findings, ai_positive_aspects, ai_abnormal_values, ai_health_recommendations, ai_next_steps]):
+                                st.markdown("---")
+                                st.markdown("#### 🤖 AI-Extracted Report Analysis")
+                                st.success("✅ Medical Report Analysis Available")
+                                
+                                if ai_key_findings:
+                                    st.markdown("**🔍 Key Findings:**")
+                                    st.info(ai_key_findings)
+                                
+                                if ai_positive_aspects:
+                                    st.markdown("**✅ Positive Aspects:**")
+                                    st.success(ai_positive_aspects)
+                                
+                                if ai_abnormal_values:
+                                    st.markdown("**⚠️ Abnormal Values:**")
+                                    st.warning(ai_abnormal_values)
+                                
+                                if ai_health_recommendations:
+                                    st.markdown("**💡 Report Recommendations:**")
+                                    st.markdown(ai_health_recommendations)
+                                
+                                if ai_next_steps:
+                                    st.markdown("**👣 Suggested Next Steps:**")
+                                    st.markdown(ai_next_steps)
+                            
+                            # 3. Drift Analysis Section
                             st.markdown("---")
                             st.markdown("#### 🔍 Drift Pattern Analysis")
                             
@@ -1666,7 +1747,7 @@ def show():
                             else:
                                 st.warning(f"⚠️ Drift analysis unavailable: {drift_summary.get('error', 'Unknown error')}")
                             
-                            # 3. Contextual Analysis Section
+                            # 4. Contextual Analysis Section
                             st.markdown("---")
                             st.markdown("#### 🌟 Lifestyle Context Analysis")
                             
@@ -1688,7 +1769,7 @@ def show():
                             else:
                                 st.warning(f"⚠️ Context analysis unavailable: {context.get('error', 'Unknown error')}")
                             
-                            # 4. Risk Assessment Section
+                            # 5. Risk Assessment Section
                             st.markdown("---")
                             st.markdown("#### ⚖️ Risk Assessment Over Time")
                             
@@ -1726,7 +1807,7 @@ def show():
                             else:
                                 st.warning(f"⚠️ Risk assessment unavailable: {risk.get('error', 'Unknown error')}")
                             
-                            # 5. Safety Notice Section
+                            # 6. Safety Notice Section
                             st.markdown("---")
                             st.markdown("#### 🛡️ Safety Evaluation")
                             
@@ -1758,7 +1839,7 @@ def show():
                                     for step in safety.get('next_steps', []):
                                         st.markdown(f"- {step}")
                             
-                            # 6. Care Guidance Section
+                            # 7. Care Guidance Section
                             st.markdown("---")
                             st.markdown("#### 💝 Personalized Care Guidance")
                             
@@ -1780,7 +1861,7 @@ def show():
                                     with st.expander("💭 Why These Suggestions?"):
                                         st.markdown(care['rationale'])
                             
-                            # 7. Pipeline Metadata
+                            # 8. Pipeline Metadata
                             st.markdown("---")
                             st.markdown("#### 🔧 Analysis Details")
                             
@@ -1795,7 +1876,7 @@ def show():
                                 status_emoji = '✅' if completion == 'complete' else '⚠️'
                                 st.metric("Status", f"{status_emoji} {completion.title()}")
                             
-                            # 8. Disclaimer
+                            # 9. Disclaimer
                             st.markdown("---")
                             st.markdown("#### ⚠️ Important Disclaimer")
                             disclaimer = care.get('disclaimer') or safety.get('disclaimer', '')
@@ -1824,6 +1905,34 @@ def show():
                                     drift_pct = summary.get('drift_percentage', 0)
                                     trend = summary.get('trend', 'Stable').title()
                                     
+                                    # Get AI-extracted report analysis from context data
+                                    ctx_data = health_data.get('context_data', {})
+                                    ai_key_findings = ctx_data.get('ai_key_findings', '')
+                                    ai_positive_aspects = ctx_data.get('ai_positive_aspects', '')
+                                    ai_abnormal_values = ctx_data.get('ai_abnormal_values', '')
+                                    ai_health_recommendations = ctx_data.get('ai_health_recommendations', '')
+                                    ai_next_steps = ctx_data.get('ai_next_steps', '')
+                                    
+                                    # Build AI-Extracted Report Analysis section
+                                    ai_extracted_section = ""
+                                    if any([ai_key_findings, ai_positive_aspects, ai_abnormal_values, ai_health_recommendations, ai_next_steps]):
+                                        ai_extracted_section = "\n🤖 AI-EXTRACTED REPORT ANALYSIS\n\n"
+                                        
+                                        if ai_key_findings:
+                                            ai_extracted_section += f"🔍 Key Findings:\n{ai_key_findings}\n\n"
+                                        
+                                        if ai_positive_aspects:
+                                            ai_extracted_section += f"✅ Positive Aspects:\n{ai_positive_aspects}\n\n"
+                                        
+                                        if ai_abnormal_values:
+                                            ai_extracted_section += f"⚠️ Abnormal Values:\n{ai_abnormal_values}\n\n"
+                                        
+                                        if ai_health_recommendations:
+                                            ai_extracted_section += f"💡 Report Recommendations:\n{ai_health_recommendations}\n\n"
+                                        
+                                        if ai_next_steps:
+                                            ai_extracted_section += f"👣 Suggested Next Steps:\n{ai_next_steps}\n\n"
+                                    
                                     analysis_text = f"""Comprehensive Health Analysis Report
 
 HEALTH SCORES SUMMARY
@@ -1839,7 +1948,7 @@ Analysis Period: Last {days_to_analyze} days
 Health Checks Analyzed: {len(health_data['health_checks'])} days
 Severity Level: {summary.get('severity', 'None').title()}
 Medical Escalation: {"Recommended" if summary.get('escalation_needed') else "Not Required"}
-
+{ai_extracted_section}
 DRIFT PATTERN ANALYSIS
 
 {analysis.get('drift_summary', {}).get('explanation', 'Drift analysis not available')}
