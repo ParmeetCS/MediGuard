@@ -1,7 +1,7 @@
 """
 Daily Health Check - MediGuard Drift AI
 Movement analysis and health assessment page with person detection
-Supports both local (OpenCV) and cloud (browser camera) deployments
+Supports both local (OpenCV) and cloud (WebRTC browser video) deployments
 """
 
 import streamlit as st
@@ -13,6 +13,8 @@ from datetime import datetime
 import numpy as np
 from PIL import Image
 import io
+import threading
+import queue
 
 # Try to import cv2 - may fail on some cloud deployments
 try:
@@ -22,6 +24,16 @@ except ImportError as e:
     CV2_AVAILABLE = False
     cv2 = None
     print(f"Warning: OpenCV not available - {e}")
+
+# Try to import streamlit-webrtc for browser video
+try:
+    from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+    import av
+    WEBRTC_AVAILABLE = True
+except ImportError as e:
+    WEBRTC_AVAILABLE = False
+    webrtc_streamer = None
+    print(f"Warning: streamlit-webrtc not available - {e}")
 
 # Import vision modules with fallback
 try:
@@ -54,12 +66,19 @@ from storage.database import save_health_record, load_health_records
 from storage.health_repository import save_health_check
 
 
-def extract_features_from_images(images: list, activity_name: str = "general") -> dict:
+def extract_features_from_frames(frames: list, activity_name: str = "general") -> dict:
     """
-    Extract features from a list of PIL images (for cloud/browser camera mode).
-    This is a simplified version that works without OpenCV's advanced features.
+    Extract features from a list of video frames (numpy arrays from WebRTC or OpenCV).
+    Performs real motion analysis on continuous video frames.
+    
+    Args:
+        frames: List of numpy arrays (BGR or RGB format)
+        activity_name: Type of activity for context-aware analysis
+    
+    Returns:
+        Dictionary with movement metrics
     """
-    if not images:
+    if not frames or len(frames) == 0:
         return {
             'movement_speed': 0.5,
             'stability': 0.5,
@@ -72,13 +91,16 @@ def extract_features_from_images(images: list, activity_name: str = "general") -
             'frame_by_frame_motion': []
         }
     
-    # Convert PIL images to numpy arrays
-    frames = []
-    for img in images:
-        if img is not None:
-            frames.append(np.array(img))
+    # Ensure frames are numpy arrays
+    processed_frames = []
+    for frame in frames:
+        if frame is not None:
+            if isinstance(frame, np.ndarray):
+                processed_frames.append(frame)
+            elif hasattr(frame, '__array__'):
+                processed_frames.append(np.array(frame))
     
-    if len(frames) < 2:
+    if len(processed_frames) < 2:
         return {
             'movement_speed': 0.75,
             'stability': 0.80,
@@ -87,45 +109,82 @@ def extract_features_from_images(images: list, activity_name: str = "general") -
             'micro_movements': 0.10,
             'range_of_motion': 0.65,
             'acceleration_variance': 0.12,
-            'frame_count': len(frames),
-            'frame_by_frame_motion': [0.5] * len(frames)
+            'frame_count': len(processed_frames),
+            'frame_by_frame_motion': [0.5] * len(processed_frames)
         }
     
-    # Simple motion detection between frames
-    motion_values = []
-    for i in range(1, len(frames)):
-        # Calculate simple difference between frames
-        diff = np.abs(frames[i].astype(float) - frames[i-1].astype(float))
-        motion = np.mean(diff) / 255.0  # Normalize to 0-1
-        motion_values.append(motion)
+    # Convert to grayscale for motion analysis if needed
+    gray_frames = []
+    for frame in processed_frames:
+        if len(frame.shape) == 3:  # Color image
+            if CV2_AVAILABLE and cv2 is not None:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            else:
+                # Manual grayscale conversion
+                gray = np.mean(frame, axis=2).astype(np.uint8)
+            gray_frames.append(gray)
+        else:
+            gray_frames.append(frame)
     
+    # Calculate frame-by-frame motion using optical flow principles
+    motion_values = []
+    velocity_changes = []
+    
+    for i in range(1, len(gray_frames)):
+        # Absolute difference between frames
+        diff = np.abs(gray_frames[i].astype(float) - gray_frames[i-1].astype(float))
+        
+        # Motion magnitude
+        motion = np.mean(diff) / 255.0
+        motion_values.append(motion)
+        
+        # Track velocity changes (acceleration)
+        if len(motion_values) >= 2:
+            velocity_change = abs(motion_values[-1] - motion_values[-2])
+            velocity_changes.append(velocity_change)
+    
+    # Calculate motion statistics
     avg_motion = np.mean(motion_values) if motion_values else 0.5
     motion_std = np.std(motion_values) if motion_values else 0.1
+    max_motion = np.max(motion_values) if motion_values else 0.5
+    min_motion = np.min(motion_values) if motion_values else 0.5
+    motion_range = max_motion - min_motion
     
-    # Map motion to health metrics (higher motion = better for movement tests)
-    # Stability is inverse (lower motion = better stability)
-    if activity_name == "stability":
-        movement_speed = max(0.3, 1.0 - avg_motion * 5)  # Less motion is better for stability
-        stability = max(0.3, 1.0 - motion_std * 10)
+    # Acceleration variance (smoothness of movement)
+    accel_variance = np.std(velocity_changes) if velocity_changes else 0.1
+    
+    # Calculate metrics based on activity type
+    if activity_name == "stability" or activity_name == "balance":
+        # For stability tests: less motion = better
+        movement_speed = max(0.3, min(1.0, 1.0 - avg_motion * 4))
+        stability = max(0.3, min(1.0, 1.0 - motion_std * 8))
+        motion_smoothness = max(0.3, min(1.0, 1.0 - accel_variance * 10))
     else:
-        movement_speed = min(1.0, 0.5 + avg_motion * 3)  # More motion is better for movement
-        stability = max(0.4, 1.0 - motion_std * 5)
+        # For movement tests: controlled motion with low variance = better
+        movement_speed = max(0.3, min(1.0, 0.4 + avg_motion * 3))
+        stability = max(0.3, min(1.0, 1.0 - motion_std * 5))
+        motion_smoothness = max(0.3, min(1.0, 1.0 - accel_variance * 6))
+    
+    # Posture deviation: high variance suggests poor control
+    posture_deviation = min(0.6, motion_std * 3)
+    
+    # Micro movements: small constant motions
+    micro_movements = min(0.5, min_motion * 4 + motion_std * 2)
+    
+    # Range of motion: difference between max and min activity
+    range_of_motion = max(0.3, min(1.0, motion_range * 5 + 0.3))
     
     return {
         'movement_speed': round(movement_speed, 3),
         'stability': round(stability, 3),
-        'motion_smoothness': round(max(0.4, 1.0 - motion_std * 8), 3),
-        'posture_deviation': round(min(0.5, motion_std * 3), 3),
-        'micro_movements': round(min(0.4, avg_motion * 2), 3),
-        'range_of_motion': round(min(1.0, avg_motion * 4 + 0.3), 3),
-        'acceleration_variance': round(motion_std, 3),
-        'frame_count': len(frames),
+        'motion_smoothness': round(motion_smoothness, 3),
+        'posture_deviation': round(posture_deviation, 3),
+        'micro_movements': round(micro_movements, 3),
+        'range_of_motion': round(range_of_motion, 3),
+        'acceleration_variance': round(accel_variance, 3),
+        'frame_count': len(processed_frames),
         'frame_by_frame_motion': motion_values
     }
-
-# Import database module
-from storage.database import save_health_record, load_health_records
-from storage.health_repository import save_health_check
 
 
 def load_history_df():
@@ -177,14 +236,19 @@ def show():
         st.caption(f"Auto-detected: {'Cloud' if IS_CLOUD else 'Local'}")
         st.caption(f"OpenCV: {'✅' if CV2_AVAILABLE else '❌'}")
         st.caption(f"Vision: {'✅' if VISION_AVAILABLE else '❌'}")
+        st.caption(f"WebRTC: {'✅' if WEBRTC_AVAILABLE else '❌'}")
     
     # Check if camera/vision features are available
     if USE_BROWSER_CAMERA:
-        st.info("📹 **Browser Camera Mode** - Using your device's camera through the browser")
+        if not WEBRTC_AVAILABLE:
+            st.error("❌ **WebRTC not available!** Browser video requires `streamlit-webrtc` package.")
+            st.code("pip install streamlit-webrtc av", language="bash")
+            st.stop()
+        st.info("🎥 **Browser Video Mode** - Real-time video analysis through WebRTC")
         st.markdown("""
         <div style='background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); padding: 1rem; border-radius: 12px; color: white; margin-bottom: 1rem;'>
-            <p style='margin: 0;'><b>🌐 Cloud Mode Active:</b> Camera access works through your browser. 
-            For best results, ensure good lighting and position yourself in frame.</p>
+            <p style='margin: 0;'><b>🌐 Cloud Mode Active:</b> Video streams through your browser using WebRTC. 
+            Allow camera access when prompted, then click Start Recording for each test.</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -221,80 +285,149 @@ def show():
             st.session_state.movement_complete = False
             st.rerun()
 
-    # Recording Function - Supports both OpenCV (local) and Browser Camera (cloud)
+    # Recording Function - Supports both OpenCV (local) and WebRTC Browser Video (cloud)
     def run_recording_session(activity_key, duration, instruction):
         """Recording session with camera preview. Supports both local and cloud deployments."""
         st.info(f"📋 **Instructions:** {instruction}")
         
         # Check if we're using browser camera mode
         if USE_BROWSER_CAMERA:
-            return run_browser_camera_session(activity_key, duration, instruction)
+            return run_webrtc_camera_session(activity_key, duration, instruction)
         else:
             return run_opencv_camera_session(activity_key, duration, instruction)
     
-    def run_browser_camera_session(activity_key, duration, instruction):
-        """Browser-based camera recording for cloud deployments using st.camera_input."""
+    def run_webrtc_camera_session(activity_key, duration, instruction):
+        """WebRTC-based video recording for cloud deployments - captures real video frames."""
+        
+        if not WEBRTC_AVAILABLE:
+            st.error("❌ WebRTC not available. Please install streamlit-webrtc: `pip install streamlit-webrtc av`")
+            return None
+        
         st.markdown("""
         <div style='background: #e3f2fd; padding: 15px; border-radius: 10px; border-left: 4px solid #2196F3; margin: 10px 0;'>
-            <b>📸 Browser Camera Mode:</b> Take multiple photos to capture your movement.
-            <br>Click the camera button below to capture frames during your activity.
+            <b>🎥 Browser Video Mode:</b> Real-time video analysis through your browser.
+            <br>Allow camera access when prompted, then click Start to begin recording.
         </div>
         """, unsafe_allow_html=True)
         
-        # Initialize session state for captured images
-        if f'{activity_key}_images' not in st.session_state:
-            st.session_state[f'{activity_key}_images'] = []
+        # Initialize frame storage in session state
+        if f'{activity_key}_frames' not in st.session_state:
+            st.session_state[f'{activity_key}_frames'] = []
+        if f'{activity_key}_recording' not in st.session_state:
+            st.session_state[f'{activity_key}_recording'] = False
+        if f'{activity_key}_start_time' not in st.session_state:
+            st.session_state[f'{activity_key}_start_time'] = None
+        
+        # Frame processor class for WebRTC
+        class VideoProcessor:
+            def __init__(self):
+                self.frames = []
+                self.recording = False
+                self.start_time = None
+                self.duration = duration
+                self.frame_count = 0
+                
+            def recv(self, frame):
+                img = frame.to_ndarray(format="bgr24")
+                
+                # Store frames when recording
+                if self.recording and self.start_time:
+                    elapsed = time.time() - self.start_time
+                    if elapsed <= self.duration:
+                        # Sample frames (every 5th frame to avoid too many)
+                        self.frame_count += 1
+                        if self.frame_count % 5 == 0:
+                            self.frames.append(img.copy())
+                    else:
+                        self.recording = False
+                
+                # Add recording indicator to frame
+                if self.recording:
+                    elapsed = time.time() - self.start_time if self.start_time else 0
+                    remaining = max(0, self.duration - elapsed)
+                    cv2.putText(img, f"REC {remaining:.1f}s", (10, 30), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                    cv2.circle(img, (img.shape[1] - 30, 30), 10, (0, 0, 255), -1)
+                
+                return av.VideoFrame.from_ndarray(img, format="bgr24")
+        
+        # RTC Configuration for STUN servers (needed for cloud)
+        rtc_config = RTCConfiguration({
+            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        })
         
         col1, col2, col3 = st.columns([1, 1, 1])
-        with col1:
-            if st.button(f"🔄 Clear & Restart", key=f"clear_{activity_key}", use_container_width=True):
-                st.session_state[f'{activity_key}_images'] = []
-                st.rerun()
-        with col2:
-            pass  # Empty column for spacing
         with col3:
             skip_btn = st.button(f"⏭️ Skip", key=f"skip_{activity_key}", use_container_width=True)
         
         if skip_btn:
             return "skip"
         
-        # Camera input widget
-        st.markdown(f"### 📷 Capture {3} photos while performing the activity")
-        st.markdown(f"**Activity:** {instruction}")
-        
-        captured_count = len(st.session_state[f'{activity_key}_images'])
-        st.progress(min(captured_count / 3, 1.0), text=f"Captured: {captured_count}/3 photos")
-        
-        # Show camera input
-        camera_photo = st.camera_input(
-            f"📸 Take photo {captured_count + 1} of 3", 
-            key=f"camera_{activity_key}_{captured_count}"
+        # Create WebRTC streamer with video processor
+        ctx = webrtc_streamer(
+            key=f"webrtc_{activity_key}",
+            mode=WebRtcMode.SENDRECV,
+            rtc_configuration=rtc_config,
+            video_processor_factory=VideoProcessor,
+            media_stream_constraints={"video": True, "audio": False},
+            async_processing=True,
         )
         
-        if camera_photo is not None:
-            # Convert to PIL Image
-            image = Image.open(camera_photo)
-            st.session_state[f'{activity_key}_images'].append(image)
-            st.success(f"✅ Photo {captured_count + 1} captured!")
-            time.sleep(0.5)
-            st.rerun()
+        if ctx.video_processor:
+            # Control buttons
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(f"🎥 Start Recording ({duration}s)", key=f"start_rec_{activity_key}", 
+                           type="primary", use_container_width=True):
+                    ctx.video_processor.recording = True
+                    ctx.video_processor.start_time = time.time()
+                    ctx.video_processor.frames = []
+                    ctx.video_processor.frame_count = 0
+                    st.session_state[f'{activity_key}_recording'] = True
+                    st.session_state[f'{activity_key}_start_time'] = time.time()
+            
+            with col2:
+                if st.button(f"⏹️ Stop & Analyze", key=f"stop_rec_{activity_key}", use_container_width=True):
+                    ctx.video_processor.recording = False
+                    frames = ctx.video_processor.frames.copy()
+                    if frames:
+                        st.session_state[f'{activity_key}_frames'] = frames
+                        st.success(f"✅ Captured {len(frames)} frames for analysis!")
+                        return frames
+                    else:
+                        st.warning("⚠️ No frames captured. Please start recording first.")
+            
+            # Show recording status
+            if ctx.video_processor.recording:
+                st.markdown("### 🔴 Recording in progress...")
+                progress_placeholder = st.empty()
+                
+                # Auto-update progress
+                if ctx.video_processor.start_time:
+                    elapsed = time.time() - ctx.video_processor.start_time
+                    progress = min(elapsed / duration, 1.0)
+                    progress_placeholder.progress(progress, text=f"Recording: {elapsed:.1f}s / {duration}s")
+                    
+                    if elapsed >= duration:
+                        frames = ctx.video_processor.frames.copy()
+                        ctx.video_processor.recording = False
+                        if frames:
+                            st.session_state[f'{activity_key}_frames'] = frames
+                            st.success(f"✅ Recording complete! Captured {len(frames)} frames.")
+                            return frames
+            
+            # Show frame count
+            frame_count = len(ctx.video_processor.frames) if ctx.video_processor else 0
+            st.caption(f"📊 Frames captured: {frame_count}")
         
-        # Show captured images
-        if st.session_state[f'{activity_key}_images']:
-            st.markdown("#### 📸 Captured Photos:")
-            cols = st.columns(len(st.session_state[f'{activity_key}_images']))
-            for i, img in enumerate(st.session_state[f'{activity_key}_images']):
-                with cols[i]:
-                    st.image(img, caption=f"Photo {i+1}", use_container_width=True)
-        
-        # Complete button when enough photos captured
-        if len(st.session_state[f'{activity_key}_images']) >= 3:
-            st.success("✅ All photos captured!")
-            if st.button("📊 Analyze Movement", key=f"analyze_{activity_key}", type="primary", use_container_width=True):
-                images = st.session_state[f'{activity_key}_images']
-                # Clear for next activity
-                st.session_state[f'{activity_key}_images'] = []
-                return images
+        # Check if we have frames from previous recording
+        if st.session_state.get(f'{activity_key}_frames'):
+            frames = st.session_state[f'{activity_key}_frames']
+            st.success(f"✅ {len(frames)} frames ready for analysis")
+            if st.button("📊 Analyze Movement", key=f"analyze_{activity_key}", 
+                        type="primary", use_container_width=True):
+                st.session_state[f'{activity_key}_frames'] = []
+                return frames
         
         return None
     
@@ -857,9 +990,9 @@ def show():
             st.rerun()
         elif result:
             with st.spinner("🔬 Analyzing biomechanics..."):
-                # Handle both numpy arrays (OpenCV) and PIL images (browser camera)
+                # Handle both numpy arrays (WebRTC/OpenCV video frames)
                 if USE_BROWSER_CAMERA:
-                    feats = extract_features_from_images(result, activity_name="sit_to_stand")
+                    feats = extract_features_from_frames(result, activity_name="sit_to_stand")
                 else:
                     feats = extract_features(result, activity_name="sit_to_stand")
                 st.session_state.activity_data['sit_stand'] = feats
@@ -884,9 +1017,9 @@ def show():
             st.rerun()
         elif result:
             with st.spinner("🔬 Analyzing balance patterns..."):
-                # Handle both numpy arrays (OpenCV) and PIL images (browser camera)
+                # Handle both numpy arrays (WebRTC/OpenCV video frames)
                 if USE_BROWSER_CAMERA:
-                    feats = extract_features_from_images(result, activity_name="stability")
+                    feats = extract_features_from_frames(result, activity_name="stability")
                 else:
                     feats = extract_features(result, activity_name="stability")
                 st.session_state.activity_data['stability'] = feats
@@ -911,11 +1044,11 @@ def show():
             st.rerun()
         elif result:
             with st.spinner("🔬 Analyzing movement dynamics..."):
-                # Handle both numpy arrays (OpenCV) and PIL images (browser camera)
+                # Handle both numpy arrays (WebRTC/OpenCV video frames)
                 if USE_BROWSER_CAMERA:
-                    feats = extract_features_from_images(result, activity_name="general")
+                    feats = extract_features_from_frames(result, activity_name="movement")
                 else:
-                    feats = extract_features(result, activity_name="general")
+                    feats = extract_features(result, activity_name="movement")
                 st.session_state.activity_data['movement'] = feats
                 st.session_state.movement_complete = True
         
