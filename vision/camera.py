@@ -4,7 +4,13 @@ This module provides a generator for live webcam streaming.
 It is designed to be consumed by a Streamlit loop to display real-time video.
 """
 
-import cv2
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None
+
 import time
 from typing import Generator, Optional
 import numpy as np

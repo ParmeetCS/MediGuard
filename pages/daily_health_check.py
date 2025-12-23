@@ -4,7 +4,6 @@ Movement analysis and health assessment page with person detection
 """
 
 import streamlit as st
-import cv2
 import time
 import pandas as pd
 import plotly.graph_objects as go
@@ -12,10 +11,27 @@ import plotly.express as px
 from datetime import datetime
 import numpy as np
 
-# Import vision modules
-from vision.camera import camera_stream
-from vision.feature_extraction import extract_features
-from vision.person_detection import PersonDetector
+# Try to import cv2 - may fail on some cloud deployments
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError as e:
+    CV2_AVAILABLE = False
+    cv2 = None
+    print(f"Warning: OpenCV not available - {e}")
+
+# Import vision modules with fallback
+try:
+    from vision.camera import camera_stream
+    from vision.feature_extraction import extract_features
+    from vision.person_detection import PersonDetector
+    VISION_AVAILABLE = True
+except ImportError as e:
+    VISION_AVAILABLE = False
+    camera_stream = None
+    extract_features = None
+    PersonDetector = None
+    print(f"Warning: Vision modules not available - {e}")
 
 # Import database module
 from storage.database import save_health_record, load_health_records
@@ -47,6 +63,52 @@ def show():
     """, unsafe_allow_html=True)
     
     st.markdown("---")
+    
+    # Check if camera/vision features are available
+    if not CV2_AVAILABLE or not VISION_AVAILABLE:
+        st.warning("⚠️ **Camera-Based Analysis Not Available on Cloud Deployment**")
+        st.markdown("""
+        <div style='background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); padding: 1.5rem; border-radius: 12px; color: white;'>
+            <h3 style='margin: 0 0 1rem 0; color: white;'>📹 Camera Features Unavailable</h3>
+            <p style='margin: 0;'>The camera-based movement analysis requires OpenCV which is not fully 
+            supported on Streamlit Cloud. This feature works on local deployments.</p>
+            <br/>
+            <p style='margin: 0;'><b>Available alternatives:</b></p>
+            <ul style='margin: 0.5rem 0;'>
+                <li>📊 View your <b>Dashboard</b> for historical health data</li>
+                <li>💬 Use <b>AI Health Chat</b> for personalized health insights</li>
+                <li>📖 Check the <b>Guide</b> for health information</li>
+                <li>🏠 Run the app locally for full camera features</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+        st.subheader("📊 Your Historical Health Data")
+        
+        # Show historical data instead
+        history_df = load_history_df()
+        if not history_df.empty:
+            st.success(f"✅ Found {len(history_df)} health check records")
+            
+            # Display latest metrics
+            latest = history_df.iloc[-1] if len(history_df) > 0 else None
+            if latest is not None:
+                st.markdown("**Latest Health Check:**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    val = latest.get('movement_speed', latest.get('avg_movement_speed', 0))
+                    st.metric("Movement Speed", f"{float(val)*100:.0f}%" if val else "N/A")
+                with col2:
+                    val = latest.get('stability', latest.get('avg_stability', 0))
+                    st.metric("Stability", f"{float(val)*100:.0f}%" if val else "N/A")
+                with col3:
+                    val = latest.get('sit_stand_movement_speed', 0)
+                    st.metric("Sit-Stand Speed", f"{float(val)*100:.0f}%" if val else "N/A")
+        else:
+            st.info("No health check records found. Complete your first health check on a local deployment.")
+        
+        return  # Exit early if vision not available
     
     # Initialize Session State FIRST
     if 'stage' not in st.session_state:
