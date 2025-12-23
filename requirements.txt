@@ -3,7 +3,7 @@ requests
 pydantic
 python-dotenv
 supabase
-opencv-python
+opencv-python-headless
 matplotlib
 numpy
 pdf2image
