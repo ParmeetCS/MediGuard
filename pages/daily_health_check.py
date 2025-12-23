@@ -293,30 +293,37 @@ def show():
         """WebRTC-based recording for cloud deployment."""
         st.markdown(f"**Instructions:** {instruction}")
         
-        # Free TURN servers for reliable connection
-        rtc_config = {
-            "iceServers": [
+        # Configure ICE servers (STUN/TURN)
+        # 1. Try to load from secrets first (best for production)
+        # 2. Fallback to Google STUN (reliable for many cases)
+        # 3. Use OpenRelay as last resort (free tier, can be slow/overloaded)
+        
+        ice_servers = []
+        
+        # Check secrets or env vars for custom config
+        if "ice_servers" in st.secrets:
+            ice_servers = st.secrets["ice_servers"]
+        
+        # If no custom config, build default list
+        if not ice_servers:
+            ice_servers = [
+                # Google STUN servers - Fast and reliable
                 {"urls": ["stun:stun.l.google.com:19302"]},
                 {"urls": ["stun:stun1.l.google.com:19302"]},
                 {"urls": ["stun:stun2.l.google.com:19302"]},
-                {"urls": ["stun:stun.services.mozilla.com"]},
+            ]
+            
+            # Add OpenRelay as fallback
+            # Note: Free tier might be slow or rate-limited
+            ice_servers.extend([
                 {
-                    "urls": "turn:openrelay.metered.ca:80",
-                    "username": "openrelayproject",
-                    "credential": "openrelayproject"
-                },
-                {
-                    "urls": "turn:openrelay.metered.ca:443",
-                    "username": "openrelayproject", 
-                    "credential": "openrelayproject"
-                },
-                {
-                    "urls": "turn:openrelay.metered.ca:443?transport=tcp",
+                    "urls": ["turn:openrelay.metered.ca:80", "turn:openrelay.metered.ca:443", "turn:openrelay.metered.ca:443?transport=tcp"],
                     "username": "openrelayproject",
                     "credential": "openrelayproject"
                 }
-            ]
-        }
+            ])
+
+        rtc_config = {"iceServers": ice_servers}
         
         col1, col2 = st.columns([3, 1])
         with col2:
