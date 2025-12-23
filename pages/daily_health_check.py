@@ -290,14 +290,77 @@ def show():
     
     # WebRTC recording function
     def run_webrtc_session(activity_key, duration, instruction):
-        """WebRTC-based recording for cloud deployment."""
+        """WebRTC-based recording for cloud deployment with video upload fallback."""
         st.markdown(f"**Instructions:** {instruction}")
         
-        # Configure ICE servers (STUN/TURN)
-        # 1. Try to load from secrets first (best for production)
-        # 2. Fallback to Google STUN (reliable for many cases)
-        # 3. Use OpenRelay as last resort (free tier, can be slow/overloaded)
+        # Add fallback option toggle
+        st.markdown("---")
+        use_upload = st.checkbox(
+            "📤 Camera not working? Upload a pre-recorded video instead", 
+            key=f"use_upload_{activity_key}",
+            help="If WebRTC connection is failing, you can upload a video file instead"
+        )
         
+        if use_upload:
+            st.info("📹 **Upload Mode**: Record a video on your phone/camera and upload it here")
+            uploaded_file = st.file_uploader(
+                f"Upload video for {activity_key.replace('_', ' ').title()}",
+                type=['mp4', 'avi', 'mov', 'webm'],
+                key=f"upload_{activity_key}",
+                help=f"Record yourself performing the activity for {duration} seconds, then upload the video"
+            )
+            
+            col1, col2 = st.columns([3, 1])
+            with col2:
+                if st.button("⏭️ Skip", key=f"skip_upload_{activity_key}"):
+                    return "skip"
+            
+            if uploaded_file is not None:
+                if st.button(f"📊 Analyze Uploaded Video", key=f"analyze_upload_{activity_key}", type="primary"):
+                    try:
+                        # Save uploaded file temporarily
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
+                            tmp_file.write(uploaded_file.read())
+                            tmp_path = tmp_file.name
+                        
+                        # Extract frames from video
+                        if CV2_AVAILABLE and cv2 is not None:
+                            cap = cv2.VideoCapture(tmp_path)
+                            frames = []
+                            frame_count = 0
+                            
+                            with st.spinner("Processing uploaded video..."):
+                                while True:
+                                    ret, frame = cap.read()
+                                    if not ret:
+                                        break
+                                    # Sample every 3rd frame
+                                    if frame_count % 3 == 0:
+                                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                                        frames.append(rgb_frame)
+                                    frame_count += 1
+                                
+                                cap.release()
+                            
+                            # Clean up temp file
+                            import os
+                            os.unlink(tmp_path)
+                            
+                            if frames:
+                                st.success(f"✅ Extracted {len(frames)} frames from video!")
+                                return frames
+                            else:
+                                st.error("❌ Could not extract frames from video")
+                        else:
+                            st.error("❌ OpenCV not available for video processing")
+                    except Exception as e:
+                        st.error(f"❌ Error processing video: {str(e)}")
+            
+            return None
+        
+        # Original WebRTC code
+        # Configure ICE servers (STUN/TURN)
         ice_servers = []
         
         # Check secrets or env vars for custom config
@@ -314,7 +377,6 @@ def show():
             ]
             
             # Add OpenRelay as fallback
-            # Note: Free tier might be slow or rate-limited
             ice_servers.extend([
                 {
                     "urls": ["turn:openrelay.metered.ca:80", "turn:openrelay.metered.ca:443", "turn:openrelay.metered.ca:443?transport=tcp"],
@@ -329,6 +391,8 @@ def show():
         with col2:
             if st.button("⏭️ Skip", key=f"skip_{activity_key}"):
                 return "skip"
+        
+        st.warning("⏳ If connection takes too long, enable 'Upload video' option above")
         
         # Create WebRTC streamer
         ctx = webrtc_streamer(
