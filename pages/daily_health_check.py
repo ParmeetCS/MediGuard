@@ -38,7 +38,16 @@ except ImportError as e:
 
 # Check if running on cloud (no direct camera access)
 import os
-IS_CLOUD = os.environ.get('STREAMLIT_SHARING_MODE') or os.environ.get('STREAMLIT_SERVER_HEADLESS') == 'true'
+
+# Multiple ways to detect cloud environment
+IS_CLOUD = (
+    os.environ.get('STREAMLIT_SHARING_MODE') == 'true' or
+    os.environ.get('STREAMLIT_SERVER_HEADLESS') == 'true' or
+    os.environ.get('STREAMLIT_RUNTIME_ENV') == 'cloud' or
+    os.environ.get('STREAMLIT_CLOUD') == 'true' or
+    os.path.exists('/mount/src') or  # Streamlit Cloud file mount
+    os.environ.get('HOME', '').startswith('/home/appuser')  # Streamlit Cloud home dir
+)
 
 # Import database module
 from storage.database import save_health_record, load_health_records
@@ -145,8 +154,29 @@ def show():
     
     st.markdown("---")
     
+    # Initialize camera mode preference in session state
+    if 'force_browser_camera' not in st.session_state:
+        st.session_state.force_browser_camera = False
+    
     # Determine camera mode: OpenCV (local) or Browser (cloud)
-    USE_BROWSER_CAMERA = IS_CLOUD or not CV2_AVAILABLE or not VISION_AVAILABLE
+    # User can override with manual toggle if auto-detection fails
+    USE_BROWSER_CAMERA = st.session_state.force_browser_camera or IS_CLOUD or not CV2_AVAILABLE or not VISION_AVAILABLE
+    
+    # Camera mode toggle (in sidebar for easy access)
+    with st.sidebar:
+        st.markdown("### 📷 Camera Settings")
+        camera_toggle = st.toggle(
+            "Use Browser Camera", 
+            value=st.session_state.force_browser_camera,
+            help="Enable this if the camera doesn't work automatically on cloud hosting"
+        )
+        if camera_toggle != st.session_state.force_browser_camera:
+            st.session_state.force_browser_camera = camera_toggle
+            st.rerun()
+        
+        st.caption(f"Auto-detected: {'Cloud' if IS_CLOUD else 'Local'}")
+        st.caption(f"OpenCV: {'✅' if CV2_AVAILABLE else '❌'}")
+        st.caption(f"Vision: {'✅' if VISION_AVAILABLE else '❌'}")
     
     # Check if camera/vision features are available
     if USE_BROWSER_CAMERA:
