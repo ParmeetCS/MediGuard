@@ -152,7 +152,14 @@ def format_data_for_agents(health_data: dict) -> dict:
                 'workload': context.get('workload', 'moderate'),
                 'activity_level': context.get('activity_level', 'moderate'),
                 'medical_summary': context.get('medical_summary', ''),
-                'known_conditions': context.get('known_conditions', '')
+                'known_conditions': context.get('known_conditions', ''),
+                # AI-analyzed health report data
+                'ai_key_findings': context.get('ai_key_findings', ''),
+                'ai_health_recommendations': context.get('ai_health_recommendations', ''),
+                'ai_abnormal_values': context.get('ai_abnormal_values', ''),
+                'ai_positive_aspects': context.get('ai_positive_aspects', ''),
+                'ai_next_steps': context.get('ai_next_steps', ''),
+                'report_summary': context.get('report_summary', '')
             }
         
         # Extract profile data

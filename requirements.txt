@@ -1,8 +1,13 @@
 streamlit
-google-generativeai
+requests
 pydantic
 python-dotenv
 supabase
 opencv-python
 matplotlib
 numpy
+pdf2image
+pillow
+google-generativeai
+plotly
+reportlab

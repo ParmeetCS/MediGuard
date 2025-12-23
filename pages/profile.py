@@ -303,21 +303,26 @@ def show():
         profile_col1, profile_col2 = st.columns(2)
         
         with profile_col1:
+            profile_name = st.session_state.get('profile_name', 'Not set')
+            profile_age = st.session_state.get('profile_age', 0)
+            profile_lifestyle = st.session_state.get('profile_lifestyle', 'Not set')
+            
             st.markdown(f"""
                 <div style='background: #F0F7FF; padding: 1.5rem; border-radius: 10px; border-left: 4px solid #4A90E2;'>
                     <h4 style='margin-top: 0; color: #4A90E2;'>Basic Info</h4>
-                    <p><strong>👤 Name:</strong> {st.session_state.profile_name}</p>
-                    <p><strong>🎂 Age:</strong> {st.session_state.profile_age} years</p>
-                    <p><strong>💼 Lifestyle:</strong> {st.session_state.profile_lifestyle}</p>
+                    <p style='margin: 0.5rem 0; color: #333;'><strong>👤 Name:</strong> {profile_name}</p>
+                    <p style='margin: 0.5rem 0; color: #333;'><strong>🎂 Age:</strong> {profile_age} years</p>
+                    <p style='margin: 0.5rem 0; color: #333;'><strong>💼 Lifestyle:</strong> {profile_lifestyle}</p>
                 </div>
             """, unsafe_allow_html=True)
         
         with profile_col2:
+            profile_notes = st.session_state.get('profile_notes', '')
             st.markdown(f"""
                 <div style='background: #F0F7FF; padding: 1.5rem; border-radius: 10px; border-left: 4px solid #50C878;'>
                     <h4 style='margin-top: 0; color: #50C878;'>Additional Notes</h4>
-                    <p style='font-style: italic; color: #666;'>
-                        {st.session_state.profile_notes if st.session_state.profile_notes 
+                    <p style='font-style: italic; color: #222; line-height: 1.6;'>
+                        {profile_notes if profile_notes 
                          else "No additional notes provided."}
                     </p>
                 </div>
@@ -328,17 +333,3 @@ def show():
                 💡 You can update your profile anytime by changing the fields above and clicking Save Profile.
             </p>
         """, unsafe_allow_html=True)
-    
-    # ========================================
-    # DATA PRIVACY NOTE
-    # ========================================
-    st.markdown("---")
-    st.markdown("""
-        <div style='background: #E8F5E9; padding: 1rem; border-radius: 8px; border-left: 4px solid #4CAF50;'>
-            <p style='margin: 0; font-size: 0.9rem;'>
-                🔒 <strong>Privacy & Security:</strong> Your profile data is securely stored in Supabase 
-                with Row Level Security (RLS). Only you can access your own profile data. All data is 
-                encrypted at rest and in transit.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)

@@ -194,6 +194,37 @@ You're a caring friend who happens to know about health, explaining things over 
 
 """
         
+        # Add AI-analyzed health report data if available
+        if user_context.get('ai_key_findings'):
+            prompt += f"""**Key Findings from Uploaded Health Reports:**
+{user_context['ai_key_findings'][:400]}
+
+"""
+        
+        if user_context.get('ai_abnormal_values'):
+            prompt += f"""**Abnormal Values Detected in Reports:**
+{user_context['ai_abnormal_values'][:300]}
+
+"""
+        
+        if user_context.get('ai_health_recommendations'):
+            prompt += f"""**Medical Recommendations from Reports:**
+{user_context['ai_health_recommendations'][:400]}
+
+"""
+        
+        if user_context.get('ai_next_steps'):
+            prompt += f"""**Action Items from Medical Reports:**
+{user_context['ai_next_steps'][:300]}
+
+"""
+        
+        if user_context.get('report_summary'):
+            prompt += f"""**Patient's Report Summary:**
+{user_context['report_summary'][:300]}
+
+"""
+        
         prompt += """**Your Task:**
 
 Please provide a comprehensive, user-friendly contextual analysis that helps the user understand the "why" behind their health patterns:

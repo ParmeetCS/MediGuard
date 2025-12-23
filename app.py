@@ -123,7 +123,6 @@ if not st.session_state.authenticated:
                             st.error(f"❌ {message}")
         
         st.markdown("<br>", unsafe_allow_html=True)
-        st.info("💡 **Demo Mode:** If authentication is not set up, you can still create an account to test the system.")
     
     # ========================================
     # SIGN UP TAB
@@ -320,7 +319,7 @@ with st.sidebar:
 # SIDEBAR NAVIGATION
 # ========================================
 with st.sidebar:
-    st.markdown("### 🧭 Navigation")
+    st.markdown("### 🏥 MediGuard Drift AI")
     st.markdown("---")
     
     # Navigation menu options
@@ -330,12 +329,16 @@ with st.sidebar:
         "📝 Health Context": "Health Context",
         "🩺 Daily Health Check": "Daily Health Check",
         "📊 Dashboard": "Dashboard",
-        "💬 AI Health Chat": "AI Health Chat"
+        "💬 AI Health Chat": "AI Health Chat",
+        "📖 Guide": "Guide"
     }
     
-    # Create navigation buttons
+    # Create navigation buttons with highlighting
     for label, page_name in menu_options.items():
-        if st.button(label, key=page_name, use_container_width=True):
+        is_current = st.session_state.current_page == page_name
+        button_type = "primary" if is_current else "secondary"
+        
+        if st.button(label, key=page_name, use_container_width=True, type=button_type):
             st.session_state.current_page = page_name
             st.rerun()
     
@@ -384,6 +387,10 @@ try:
         from pages import ai_health_chat
         ai_health_chat.show()
     
+    elif current_page == "Guide":
+        from pages import guide
+        guide.show()
+
 except ImportError as e:
     # Handle missing page modules gracefully
     st.error(f"⚠️ Page '{current_page}' is not yet implemented.")

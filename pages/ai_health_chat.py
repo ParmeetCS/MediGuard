@@ -9,16 +9,406 @@ Fetches both health check data and context data from Supabase
 import streamlit as st
 from datetime import datetime
 import random
+from io import BytesIO
 
 # Import AI Integration Layer
 try:
     from agents.ai_integration import AIHealthAnalyzer, get_ai_chat_response
     from agents.adk_runtime import is_adk_ready
     from storage.health_data_fetcher import get_user_health_data, format_data_for_agents
+    from agents.health_search_agent import get_health_search_agent, search_health_info
     ADK_AVAILABLE = True
+    SEARCH_AVAILABLE = True
 except ImportError as e:
     ADK_AVAILABLE = False
+    SEARCH_AVAILABLE = False
     print(f"Warning: ADK integration not available: {e}")
+
+# PDF generation
+try:
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle, Image
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+    from reportlab.pdfgen import canvas
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+    print("Warning: ReportLab not available for PDF generation")
+
+
+def generate_health_report_pdf(query: str, response: str, sources: list, user_name: str = "User", 
+                                health_data: dict = None, context_data: dict = None) -> BytesIO:
+    """Generate a professional, structured PDF report of health analysis with patient data"""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=60)
+    
+    # Container for the 'Flowable' objects
+    elements = []
+    
+    # Define styles
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=22,
+        textColor=colors.HexColor('#1a237e'),
+        spaceAfter=20,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Bold'
+    )
+    
+    section_header_style = ParagraphStyle(
+        'SectionHeader',
+        parent=styles['Heading2'],
+        fontSize=14,
+        textColor=colors.white,
+        spaceAfter=8,
+        spaceBefore=15,
+        fontName='Helvetica-Bold',
+        backColor=colors.HexColor('#1a237e'),
+        borderPadding=(8, 8, 8, 8)
+    )
+    
+    subsection_style = ParagraphStyle(
+        'Subsection',
+        parent=styles['Heading3'],
+        fontSize=11,
+        textColor=colors.HexColor('#303f9f'),
+        spaceAfter=6,
+        spaceBefore=10,
+        fontName='Helvetica-Bold'
+    )
+    
+    body_style = ParagraphStyle(
+        'CustomBody',
+        parent=styles['BodyText'],
+        fontSize=10,
+        leading=14,
+        alignment=TA_LEFT,
+        spaceAfter=8
+    )
+    
+    small_body_style = ParagraphStyle(
+        'SmallBody',
+        parent=styles['BodyText'],
+        fontSize=9,
+        leading=12,
+        alignment=TA_LEFT,
+        spaceAfter=4
+    )
+    
+    center_style = ParagraphStyle(
+        'CenterText',
+        parent=styles['BodyText'],
+        fontSize=10,
+        alignment=TA_CENTER,
+        spaceAfter=4
+    )
+    
+    # ===== HEADER WITH MEDIGUARD STAMP =====
+    header_data = [
+        [Paragraph("""<font size=24 color="#1a237e"><b>🏥 MediGuard Drift AI</b></font>""", styles['Normal']),
+         Paragraph("""<font size=9 color="gray">Report ID: MG-""" + datetime.now().strftime('%Y%m%d%H%M%S') + """</font><br/>
+         <font size=9 color="gray">Generated: """ + datetime.now().strftime('%B %d, %Y') + """</font><br/>
+         <font size=9 color="gray">Time: """ + datetime.now().strftime('%I:%M %p') + """</font>""", styles['Normal'])]
+    ]
+    
+    header_table = Table(header_data, colWidths=[4*inch, 2.5*inch])
+    header_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+    ]))
+    elements.append(header_table)
+    
+    # Divider line
+    elements.append(Paragraph("""<font color="#1a237e">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</font>""", center_style))
+    elements.append(Spacer(1, 0.15*inch))
+    
+    # Title
+    elements.append(Paragraph("AI HEALTH ANALYSIS REPORT", title_style))
+    elements.append(Spacer(1, 0.1*inch))
+    
+    # ===== PATIENT INFORMATION SECTION =====
+    elements.append(Paragraph("📋 PATIENT INFORMATION", section_header_style))
+    elements.append(Spacer(1, 0.1*inch))
+    
+    # Get context data if available
+    ctx = context_data or {}
+    patient_info = [
+        ['Patient Name:', user_name, 'Report Type:', query[:40] + '...' if len(query) > 40 else query],
+        ['Age:', str(ctx.get('age', 'N/A')), 'Gender:', ctx.get('gender', 'N/A')],
+        ['Blood Type:', ctx.get('blood_type', 'N/A'), 'Activity Level:', ctx.get('activity_level', 'N/A')],
+    ]
+    
+    patient_table = Table(patient_info, colWidths=[1.2*inch, 1.8*inch, 1.2*inch, 2.1*inch])
+    patient_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#e8eaf6')),
+        ('BACKGROUND', (2, 0), (2, -1), colors.HexColor('#e8eaf6')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (2, 0), (2, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#c5cae9')),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(patient_table)
+    elements.append(Spacer(1, 0.15*inch))
+    
+    # ===== LIFESTYLE CONTEXT SECTION =====
+    elements.append(Paragraph("🌙 LIFESTYLE CONTEXT", section_header_style))
+    elements.append(Spacer(1, 0.1*inch))
+    
+    lifestyle_info = [
+        ['Sleep Hours', 'Stress Level', 'Mobility Aids', 'Living Situation'],
+        [str(ctx.get('sleep_hours', 'N/A')) + ' hours', 
+         ctx.get('stress_level', 'N/A'), 
+         ctx.get('mobility_aids', 'None'),
+         ctx.get('living_situation', 'N/A')]
+    ]
+    
+    lifestyle_table = Table(lifestyle_info, colWidths=[1.575*inch, 1.575*inch, 1.575*inch, 1.575*inch])
+    lifestyle_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#303f9f')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#e8eaf6')),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#7986cb')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(lifestyle_table)
+    elements.append(Spacer(1, 0.15*inch))
+    
+    # ===== HEALTH TEST RESULTS - 3 COLUMNS =====
+    elements.append(Paragraph("📊 HEALTH TEST RESULTS (3 Core Assessments)", section_header_style))
+    elements.append(Spacer(1, 0.1*inch))
+    
+    # Get health metrics
+    hd = health_data or {}
+    latest_check = {}
+    if hd.get('health_checks') and len(hd['health_checks']) > 0:
+        latest_check = hd['health_checks'][-1]
+    
+    # Helper function for rating
+    def get_rating(value):
+        if value is None or value == 'N/A':
+            return ('N/A', '#666666', 'No Data')
+        try:
+            pct = float(value) * 100
+            if pct >= 85:
+                return (f'{pct:.0f}%', '#2e7d32', 'EXCELLENT')
+            elif pct >= 75:
+                return (f'{pct:.0f}%', '#388e3c', 'GOOD')
+            elif pct >= 65:
+                return (f'{pct:.0f}%', '#f57c00', 'FAIR')
+            else:
+                return (f'{pct:.0f}%', '#c62828', 'NEEDS ATTENTION')
+        except:
+            return ('N/A', '#666666', 'No Data')
+    
+    movement_val = latest_check.get('avg_movement_speed', latest_check.get('movement_speed', 'N/A'))
+    stability_val = latest_check.get('avg_stability', latest_check.get('stability', 'N/A'))
+    sit_stand_val = latest_check.get('sit_stand_movement_speed', 'N/A')
+    
+    movement_rating = get_rating(movement_val)
+    stability_rating = get_rating(stability_val)
+    sit_stand_rating = get_rating(sit_stand_val)
+    
+    # Test results in 3 columns
+    test_header = ['🏃 MOVEMENT SPEED', '⚖️ STABILITY', '🪑 SIT-STAND SPEED']
+    test_values = [movement_rating[0], stability_rating[0], sit_stand_rating[0]]
+    test_ratings = [movement_rating[2], stability_rating[2], sit_stand_rating[2]]
+    test_desc = [
+        'Walking pace & mobility',
+        'Balance & steadiness', 
+        'Transition capability'
+    ]
+    
+    test_data = [
+        test_header,
+        test_values,
+        test_ratings,
+        test_desc
+    ]
+    
+    test_table = Table(test_data, colWidths=[2.1*inch, 2.1*inch, 2.1*inch])
+    test_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a237e')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        # Values row - large
+        ('FONTSIZE', (0, 1), (-1, 1), 18),
+        ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#e8eaf6')),
+        # Rating row
+        ('FONTSIZE', (0, 2), (-1, 2), 10),
+        ('FONTNAME', (0, 2), (-1, 2), 'Helvetica-Bold'),
+        ('TEXTCOLOR', (0, 2), (0, 2), colors.HexColor(movement_rating[1])),
+        ('TEXTCOLOR', (1, 2), (1, 2), colors.HexColor(stability_rating[1])),
+        ('TEXTCOLOR', (2, 2), (2, 2), colors.HexColor(sit_stand_rating[1])),
+        ('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#f5f5f5')),
+        # Description row
+        ('FONTSIZE', (0, 3), (-1, 3), 8),
+        ('TEXTCOLOR', (0, 3), (-1, 3), colors.gray),
+        ('BACKGROUND', (0, 3), (-1, 3), colors.HexColor('#fafafa')),
+        # General
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#c5cae9')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+    ]))
+    elements.append(test_table)
+    elements.append(Spacer(1, 0.1*inch))
+    
+    # Score interpretation guide
+    guide_text = """<font size=8><b>Score Guide:</b> 🌟 Excellent (85%+) | ✅ Good (75-84%) | 🟡 Fair (65-74%) | ⚠️ Needs Attention (&lt;65%)</font>"""
+    elements.append(Paragraph(guide_text, center_style))
+    elements.append(Spacer(1, 0.15*inch))
+    
+    # ===== MEDICAL REPORTS SECTION =====
+    elements.append(Paragraph("📄 MEDICAL CONDITIONS & REPORTS", section_header_style))
+    elements.append(Spacer(1, 0.1*inch))
+    
+    medical_conditions = ctx.get('medical_conditions', 'None reported')
+    medications = ctx.get('medications', 'None reported')
+    report_summary = ctx.get('report_summary', ctx.get('health_report_analysis', 'No medical reports uploaded'))
+    
+    medical_data = [
+        ['Medical Conditions', 'Current Medications'],
+        [str(medical_conditions)[:100], str(medications)[:100]]
+    ]
+    
+    medical_table = Table(medical_data, colWidths=[3.15*inch, 3.15*inch])
+    medical_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#5c6bc0')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#e8eaf6')),
+        ('FONTSIZE', (0, 1), (-1, 1), 9),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#7986cb')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    elements.append(medical_table)
+    
+    if report_summary and report_summary != 'No medical reports uploaded':
+        elements.append(Spacer(1, 0.1*inch))
+        elements.append(Paragraph("<b>Uploaded Medical Report Analysis:</b>", subsection_style))
+        # Truncate if too long
+        summary_text = str(report_summary)[:500] + ('...' if len(str(report_summary)) > 500 else '')
+        elements.append(Paragraph(summary_text, small_body_style))
+    
+    elements.append(Spacer(1, 0.15*inch))
+    
+    # ===== AI ANALYSIS SECTION =====
+    elements.append(Paragraph("🤖 AI HEALTH ANALYSIS", section_header_style))
+    elements.append(Spacer(1, 0.1*inch))
+    
+    # Split response into sections and format
+    response_lines = response.split('\n')
+    current_section = ""
+    
+    for line in response_lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Check if it's a section header (all caps or starts with specific keywords)
+        if line.isupper() and len(line) > 3:
+            elements.append(Spacer(1, 0.05*inch))
+            elements.append(Paragraph(f"<b>{line}</b>", subsection_style))
+        elif line.startswith('- '):
+            # Bullet point
+            elements.append(Paragraph(f"• {line[2:]}", small_body_style))
+        else:
+            # Regular text - clean up any remaining formatting
+            clean_line = line.replace('**', '').replace('##', '').replace('#', '')
+            if clean_line:
+                elements.append(Paragraph(clean_line, small_body_style))
+    
+    elements.append(Spacer(1, 0.2*inch))
+    
+    # ===== DISCLAIMER BOX =====
+    disclaimer_text = """<para align=center>
+    <font size=10 color="red"><b>⚠️ IMPORTANT MEDICAL DISCLAIMER ⚠️</b></font><br/><br/>
+    <font size=8>This report is AI-generated and intended for <b>INFORMATIONAL PURPOSES ONLY</b>.<br/>
+    It is NOT a substitute for professional medical advice, diagnosis, or treatment.<br/><br/>
+    <b>Always consult a qualified physician or healthcare provider before making any health decisions<br/>
+    or starting any treatment based on information in this report.</b><br/><br/>
+    The information provided may not be accurate, complete, or suitable for your specific health condition.</font>
+    </para>"""
+    
+    disclaimer_table = Table([[Paragraph(disclaimer_text, styles['Normal'])]], colWidths=[6.3*inch])
+    disclaimer_table.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 2, colors.red),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#ffebee')),
+        ('TOPPADDING', (0, 0), (-1, -1), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+    ]))
+    elements.append(disclaimer_table)
+    elements.append(Spacer(1, 0.2*inch))
+    
+    # ===== DIGITAL SIGNATURE & STAMP =====
+    elements.append(Paragraph("""<font color="#1a237e">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</font>""", center_style))
+    
+    # Digital Signature Box
+    signature_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+    signature_hash = f"MG-{datetime.now().strftime('%Y%m%d%H%M%S')}-{hash(user_name) % 10000:04d}"
+    
+    signature_text = f"""<para align=center>
+    <font size=14 color="#1a237e"><b>🏥 MediGuard Drift AI</b></font><br/><br/>
+    <font size=9 color="#303f9f">━━━━━━━━━━━━━━━━━━━━━━━━━━</font><br/>
+    <font size=10 color="#1a237e"><b>DIGITALLY SIGNED</b></font><br/>
+    <font size=9 color="#303f9f">━━━━━━━━━━━━━━━━━━━━━━━━━━</font><br/><br/>
+    <font size=8 color="gray">This document is digitally signed by MediGuard AI Health System</font><br/>
+    <font size=8 color="gray">Signature Timestamp: {signature_time}</font><br/>
+    <font size=8 color="gray">Document Hash: {signature_hash}</font><br/>
+    <font size=8 color="gray">Verification: www.mediguard-ai.com/verify</font><br/><br/>
+    <font size=7 color="#666666">Advanced Health Monitoring & Drift Detection System</font><br/>
+    <font size=7 color="#666666">5-Agent AI Pipeline: Drift | Context | Risk | Safety | Care</font><br/><br/>
+    <font size=6 color="#999999">© 2025 MediGuard Drift AI - All Rights Reserved</font>
+    </para>"""
+    
+    signature_table = Table([[Paragraph(signature_text, styles['Normal'])]], colWidths=[4*inch])
+    signature_table.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#1a237e')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#e8eaf6')),
+        ('TOPPADDING', (0, 0), (-1, -1), 15),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 15),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+    
+    # Center the signature box
+    centered_sig = Table([[signature_table]], colWidths=[6.3*inch])
+    centered_sig.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+    ]))
+    elements.append(centered_sig)
+    
+    # Build PDF
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
 
 
 def get_ai_response(user_message):
@@ -816,17 +1206,99 @@ def show():
                 latest_check = health_data['health_checks'][-1]
                 st.write(f"**Latest Check:** {latest_check.get('check_date')}")
                 
+                # Helper function to get rating with color and emoji
+                def get_health_rating(value, metric_type="general"):
+                    """Returns rating info: (label, emoji, color, description)"""
+                    if value is None:
+                        return ("N/A", "❓", "#666", "No data")
+                    
+                    # Convert to percentage
+                    pct = value * 100
+                    
+                    if pct >= 85:
+                        return ("Excellent", "🌟", "#00C853", "Great performance!")
+                    elif pct >= 75:
+                        return ("Good", "✅", "#4CAF50", "Healthy range")
+                    elif pct >= 65:
+                        return ("Fair", "🟡", "#FF9800", "Room for improvement")
+                    else:
+                        return ("Needs Attention", "⚠️", "#F44336", "Consider consulting doctor")
+                
+                # Get values
+                movement_val = latest_check.get('avg_movement_speed', 0)
+                stability_val = latest_check.get('avg_stability', 0)
+                sit_stand_val = latest_check.get('sit_stand_movement_speed', 0)
+                
+                # Get ratings
+                movement_rating = get_health_rating(movement_val)
+                stability_rating = get_health_rating(stability_val)
+                sit_stand_rating = get_health_rating(sit_stand_val)
+                
+                # Calculate overall score
+                valid_scores = [v for v in [movement_val, stability_val, sit_stand_val] if v and v > 0]
+                overall_score = sum(valid_scores) / len(valid_scores) if valid_scores else 0
+                overall_rating = get_health_rating(overall_score)
+                
+                # Display Overall Result First
+                st.markdown("---")
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, {overall_rating[2]}22, {overall_rating[2]}44); 
+                            border-left: 5px solid {overall_rating[2]}; 
+                            padding: 1.2rem; border-radius: 10px; margin-bottom: 1rem;'>
+                    <h3 style='margin: 0; color: white;'>{overall_rating[1]} Overall Health Status: <span style='color: {overall_rating[2]};'>{overall_rating[0]}</span></h3>
+                    <p style='margin: 0.5rem 0 0 0; font-size: 1.1rem; color: #ddd;'>
+                        Score: <strong>{overall_score*100:.0f}%</strong> — {overall_rating[3]}
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                
                 st.markdown("**Latest Metrics:**")
                 col1, col2, col3 = st.columns(3)
+                
                 with col1:
-                    if 'avg_movement_speed' in latest_check:
-                        st.metric("Movement Speed", f"{latest_check['avg_movement_speed']:.3f}")
+                    if movement_val:
+                        st.markdown(f"""
+                        <div style='background: {movement_rating[2]}22; border: 2px solid {movement_rating[2]}; 
+                                    padding: 1rem; border-radius: 10px; text-align: center;'>
+                            <div style='font-size: 0.9rem; color: #aaa;'>Movement Speed</div>
+                            <div style='font-size: 2rem; font-weight: bold; color: white;'>{movement_val*100:.0f}%</div>
+                            <div style='font-size: 1.2rem; color: {movement_rating[2]};'>{movement_rating[1]} {movement_rating[0]}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
                 with col2:
-                    if 'avg_stability' in latest_check:
-                        st.metric("Stability", f"{latest_check['avg_stability']:.3f}")
+                    if stability_val:
+                        st.markdown(f"""
+                        <div style='background: {stability_rating[2]}22; border: 2px solid {stability_rating[2]}; 
+                                    padding: 1rem; border-radius: 10px; text-align: center;'>
+                            <div style='font-size: 0.9rem; color: #aaa;'>Stability</div>
+                            <div style='font-size: 2rem; font-weight: bold; color: white;'>{stability_val*100:.0f}%</div>
+                            <div style='font-size: 1.2rem; color: {stability_rating[2]};'>{stability_rating[1]} {stability_rating[0]}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
                 with col3:
-                    if 'sit_stand_movement_speed' in latest_check:
-                        st.metric("Sit-Stand Speed", f"{latest_check['sit_stand_movement_speed']:.3f}")
+                    if sit_stand_val:
+                        st.markdown(f"""
+                        <div style='background: {sit_stand_rating[2]}22; border: 2px solid {sit_stand_rating[2]}; 
+                                    padding: 1rem; border-radius: 10px; text-align: center;'>
+                            <div style='font-size: 0.9rem; color: #aaa;'>Sit-Stand Speed</div>
+                            <div style='font-size: 2rem; font-weight: bold; color: white;'>{sit_stand_val*100:.0f}%</div>
+                            <div style='font-size: 1.2rem; color: {sit_stand_rating[2]};'>{sit_stand_rating[1]} {sit_stand_rating[0]}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                # Show interpretation guide
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("""
+                <div style='background: #1e3a5f; padding: 1rem; border-radius: 8px; font-size: 0.85rem;'>
+                    <strong>📊 Score Guide:</strong><br>
+                    🌟 <span style='color: #00C853;'>Excellent (85%+)</span> — Outstanding performance<br>
+                    ✅ <span style='color: #4CAF50;'>Good (75-84%)</span> — Healthy, normal range<br>
+                    🟡 <span style='color: #FF9800;'>Fair (65-74%)</span> — Some decline, monitor closely<br>
+                    ⚠️ <span style='color: #F44336;'>Needs Attention (&lt;65%)</span> — Consult healthcare provider
+                </div>
+                """, unsafe_allow_html=True)
             
             if health_data['context_data']:
                 st.markdown("#### Lifestyle Context")
@@ -834,6 +1306,161 @@ def show():
                 st.write(f"**Sleep:** {context.get('sleep_hours', 'N/A')} hours")
                 st.write(f"**Stress Level:** {context.get('stress_level', 'N/A')}")
                 st.write(f"**Activity Level:** {context.get('activity_level', 'N/A')}")
+    
+    st.markdown("---")
+    
+    # ========================================
+    # HEALTH INFORMATION SEARCH SECTION
+    # ADK-powered Google Search for evidence-based health info
+    # ========================================
+    
+    st.markdown("### 🔍 Health Information Search")
+    st.markdown("""
+    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 12px; color: white; margin-bottom: 1rem;'>
+        <h4 style='margin: 0 0 0.5rem 0; color: white;'>🌐 AI Health Assistant</h4>
+        <p style='margin: 0; font-size: 0.95rem;'>Get evidence-based health information powered by AI. 
+        Ask questions about conditions, symptoms, treatments, exercises, or preventive care.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Search interface
+    search_col1, search_col2 = st.columns([3, 1])
+    
+    # Initialize search query session state if not exists
+    if 'search_query_input' not in st.session_state:
+        st.session_state.search_query_input = ""
+    
+    with search_col1:
+        health_query = st.text_input(
+            "Ask a health question:",
+            placeholder="e.g., What are the best exercises for balance improvement?",
+            value=st.session_state.search_query_input,
+            label_visibility="collapsed"
+        )
+    
+    with search_col2:
+        search_button = st.button("🔍 Search", type="primary", use_container_width=True, key="health_search_btn")
+    
+    # Quick topic buttons
+    st.markdown("**Quick Topics:**")
+    topic_col1, topic_col2, topic_col3, topic_col4 = st.columns(4)
+    
+    with topic_col1:
+        if st.button("🧘 Balance Exercises", use_container_width=True):
+            st.session_state.search_query_input = "best balance exercises for seniors fall prevention"
+            st.rerun()
+    
+    with topic_col2:
+        if st.button("🚶 Fall Prevention", use_container_width=True):
+            st.session_state.search_query_input = "fall prevention strategies for elderly at home"
+            st.rerun()
+    
+    with topic_col3:
+        if st.button("💪 Mobility", use_container_width=True):
+            st.session_state.search_query_input = "improve mobility and flexibility exercises"
+            st.rerun()
+    
+    with topic_col4:
+        if st.button("🧠 Cognitive Health", use_container_width=True):
+            st.session_state.search_query_input = "cognitive health activities brain exercises"
+            st.rerun()
+    
+    # Process search
+    if search_button and health_query:
+        if not SEARCH_AVAILABLE:
+            st.error("❌ Health Search feature is not available. Please check Google API configuration.")
+        else:
+            with st.spinner("🔍 Searching trusted health sources with Google..."):
+                try:
+                    # Get user context for personalization
+                    user_context = {}
+                    if health_data.get('context_data'):
+                        context = health_data['context_data']
+                        user_context = {
+                            'age': context.get('age'),
+                            'health_conditions': context.get('medical_conditions'),
+                            'recent_metrics': f"Movement & Balance tracking ({len(health_data.get('health_checks', []))} checks)"
+                        }
+                    
+                    # Perform search
+                    search_result = search_health_info(health_query, user_context)
+                    
+                    if search_result['success']:
+                        # Display results directly without boxes
+                        st.markdown("---")
+                        st.subheader(f"📚 {health_query}")
+                        
+                        # Display response directly
+                        st.markdown(search_result['response'])
+                        
+                        # Display sources
+                        if search_result.get('sources') and len(search_result['sources']) > 0:
+                            st.markdown("---")
+                            st.markdown("#### 🔗 Sources")
+                            
+                            sources = search_result['sources']
+                            web_sources = [s for s in sources if s.get('url')]
+                            
+                            if web_sources:
+                                for idx, source in enumerate(web_sources[:8], 1):
+                                    title = source.get('title', 'Health Resource')
+                                    url = source.get('url', '#')
+                                    st.markdown(f"{idx}. [{title}]({url})")
+                        
+                        # Action buttons
+                        st.markdown("---")
+                        action_col1, action_col2, action_col3, action_col4 = st.columns(4)
+                        
+                        with action_col1:
+                            if st.button("📋 Copy Response", use_container_width=True):
+                                st.code(search_result['response'], language=None)
+                                st.success("Response displayed above for copying!")
+                        
+                        with action_col2:
+                            # PDF Download button
+                            if PDF_AVAILABLE:
+                                try:
+                                    user_name = st.session_state.get('profile_name', 'User')
+                                    pdf_buffer = generate_health_report_pdf(
+                                        query=health_query,
+                                        response=search_result['response'],
+                                        sources=search_result.get('sources', []),
+                                        user_name=user_name,
+                                        health_data=health_data,
+                                        context_data=health_data.get('context_data', {})
+                                    )
+                                    
+                                    st.download_button(
+                                        label="📄 Download PDF",
+                                        data=pdf_buffer,
+                                        file_name=f"MediGuard_Health_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                                        mime="application/pdf",
+                                        use_container_width=True
+                                    )
+                                except Exception as e:
+                                    if st.button("📄 PDF Error", use_container_width=True, disabled=True):
+                                        pass
+                                    st.error(f"PDF generation error: {e}")
+                            else:
+                                if st.button("📄 PDF (Install reportlab)", use_container_width=True, disabled=True):
+                                    pass
+                        
+                        with action_col3:
+                            if st.button("🔄 New Search", use_container_width=True):
+                                st.session_state.search_query_input = ""
+                                st.rerun()
+                        
+                        with action_col4:
+                            if st.button("💬 Ask Follow-up", use_container_width=True):
+                                st.info("Type your follow-up question in the search box above!")
+                        
+                    else:
+                        st.error(f"❌ Search failed: {search_result.get('error', 'Unknown error')}")
+                        st.info("Please try rephrasing your question or check your internet connection.")
+                
+                except Exception as e:
+                    st.error(f"❌ Error during search: {str(e)}")
+                    st.info("Please try again or contact support if the issue persists.")
     
     st.markdown("---")
     
@@ -1176,6 +1803,94 @@ def show():
                                 st.caption(disclaimer)
                             else:
                                 st.caption("This health monitoring system provides informational insights only and does not constitute medical advice. Always consult qualified healthcare professionals for medical concerns.")
+                        
+                        # PDF Download Button for AI Analysis
+                        st.markdown("---")
+                        st.markdown("### 📥 Download Your Report")
+                        
+                        download_col1, download_col2, download_col3 = st.columns([1, 1, 1])
+                        
+                        with download_col2:
+                            if PDF_AVAILABLE:
+                                try:
+                                    # Generate comprehensive analysis PDF
+                                    user_name = st.session_state.get('profile_name', 'User')
+                                    
+                                    # Build comprehensive text from analysis - NO markdown, plain text for PDF
+                                    baseline_val = summary.get('baseline_value', 'N/A')
+                                    baseline_rating = summary.get('baseline_rating', {}).get('rating', 'N/A')
+                                    recent_val = summary.get('recent_value', 'N/A')
+                                    recent_rating = summary.get('recent_rating', {}).get('rating', 'N/A')
+                                    drift_pct = summary.get('drift_percentage', 0)
+                                    trend = summary.get('trend', 'Stable').title()
+                                    
+                                    analysis_text = f"""Comprehensive Health Analysis Report
+
+HEALTH SCORES SUMMARY
+
+Baseline Score: {baseline_val} - {baseline_rating}
+Current Score: {recent_val} - {recent_rating}
+Change Detected: {drift_pct:+.1f}% - {trend}
+
+ANALYSIS DETAILS
+
+Metric Analyzed: {summary.get('metric_name', 'Movement Speed')}
+Analysis Period: Last {days_to_analyze} days
+Health Checks Analyzed: {len(health_data['health_checks'])} days
+Severity Level: {summary.get('severity', 'None').title()}
+Medical Escalation: {"Recommended" if summary.get('escalation_needed') else "Not Required"}
+
+DRIFT PATTERN ANALYSIS
+
+{analysis.get('drift_summary', {}).get('explanation', 'Drift analysis not available')}
+
+LIFESTYLE CONTEXT ANALYSIS
+
+{analysis.get('contextual_explanation', {}).get('contextual_explanation', 'Context analysis not available')}
+
+RISK ASSESSMENT
+
+Risk Level: {analysis.get('risk_assessment', {}).get('risk_level', 'Unknown').replace('_', ' ').title()}
+Days Observed: {analysis.get('risk_assessment', {}).get('days_observed', 0)}
+Reasoning: {analysis.get('risk_assessment', {}).get('reasoning', 'Risk assessment not available')}
+
+SAFETY EVALUATION
+
+{analysis.get('safety_notice', {}).get('notice', 'Safety evaluation not available')}
+
+CARE RECOMMENDATIONS
+
+{chr(10).join('- ' + rec for rec in result.get('recommendations', [])) if result.get('recommendations') else 'No specific recommendations at this time'}
+
+GENERATED BY
+
+MediGuard AI Health Monitoring System
+5-Agent Analysis Pipeline: Drift Detection, Context Correlation, Risk Assessment, Safety Evaluation, and Care Recommendations
+"""
+                                    
+                                    pdf_buffer = generate_health_report_pdf(
+                                        query=f"AI Health Analysis - {days_to_analyze} Day Comprehensive Report",
+                                        response=analysis_text,
+                                        sources=[],
+                                        user_name=user_name,
+                                        health_data=health_data,
+                                        context_data=health_data.get('context_data', {})
+                                    )
+                                    
+                                    st.download_button(
+                                        label="📄 Download AI Analysis Report (PDF)",
+                                        data=pdf_buffer,
+                                        file_name=f"MediGuard_AI_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                                        mime="application/pdf",
+                                        use_container_width=True,
+                                        type="primary"
+                                    )
+                                    st.success("✅ Click above to download your comprehensive AI analysis report")
+                                except Exception as e:
+                                    st.error(f"PDF generation error: {e}")
+                            else:
+                                st.warning("📄 PDF download requires reportlab package")
+                                st.code("pip install reportlab", language="bash")
                     
                     else:
                         st.warning(f"⚠️ {result.get('message', 'Analysis could not be completed')}")
@@ -1432,36 +2147,123 @@ What would you like to know about your health trends today?""",
     # ========================================
     st.markdown("---")
     
-    has_profile = st.session_state.get('profile_name', '') != ''
+    # Get actual user data
+    user_id = st.session_state.get('user_id', None)
+    profile_name = st.session_state.get('profile_name', '')
+    has_profile = profile_name != ''
     has_check_data = st.session_state.get('check_completed', False)
+    
+    # Fetch user context data
+    user_context = {}
+    health_checks_count = 0
+    if user_id:
+        try:
+            health_data = get_user_health_data(user_id, days=14)
+            if health_data['success']:
+                user_context = health_data.get('context_data', {})
+                health_checks_count = len(health_data.get('health_checks', []))
+                has_check_data = health_checks_count > 0
+        except:
+            pass
     
     st.markdown("### 🧠 AI Context Awareness")
     
     context_col1, context_col2 = st.columns(2)
     
     with context_col1:
-        profile_status = "✅ Loaded" if has_profile else "❌ Not set"
-        profile_color = "#E8F5E9" if has_profile else "#FFEBEE"
-        st.markdown(f"""
-        <div style='background: {profile_color}; padding: 1rem; border-radius: 8px;'>
-            <p style='margin: 0;'><strong>Your Profile:</strong> {profile_status}</p>
-            <p style='margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #666;'>
-                {f"I know your age, lifestyle, and preferences" if has_profile else "Complete your profile for personalized responses"}
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        if has_profile and user_context:
+            # Show actual profile data with better contrast
+            age = user_context.get('age', 'N/A')
+            gender = user_context.get('gender', 'N/A')
+            conditions = user_context.get('medical_conditions', 'None reported')
+            
+            st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); 
+                        padding: 1.2rem; border-radius: 10px; border: 2px solid #28a745;
+                        box-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);'>
+                <p style='margin: 0; font-size: 1.1rem; color: #155724;'><strong>✅ Your Profile</strong></p>
+                <div style='margin-top: 0.8rem; padding: 0.8rem; background: white; border-radius: 6px;'>
+                    <p style='margin: 0; font-size: 0.95rem; color: #333;'><strong>Name:</strong> {profile_name}</p>
+                    <p style='margin: 0.3rem 0; font-size: 0.95rem; color: #333;'><strong>Age:</strong> {age} years</p>
+                    <p style='margin: 0.3rem 0; font-size: 0.95rem; color: #333;'><strong>Gender:</strong> {gender}</p>
+                    <p style='margin: 0.3rem 0 0 0; font-size: 0.85rem; color: #666;'><strong>Conditions:</strong> {conditions[:50]}...</p>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%); 
+                        padding: 1.2rem; border-radius: 10px; border: 2px solid #dc3545;
+                        box-shadow: 0 2px 8px rgba(220, 53, 69, 0.2);'>
+                <p style='margin: 0; font-size: 1.1rem; color: #721c24;'><strong>❌ User Profile</strong></p>
+                <p style='margin: 0.8rem 0 0 0; font-size: 0.9rem; color: #721c24;'>
+                    Complete your profile for personalized responses
+                </p>
+                <a href="?page=Profile" style='display: inline-block; margin-top: 0.8rem; 
+                   padding: 0.5rem 1rem; background: #dc3545; color: white; 
+                   text-decoration: none; border-radius: 5px; font-size: 0.9rem;'>
+                    📝 Set Up Profile
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
     
     with context_col2:
-        data_status = "✅ Available" if has_check_data else "❌ No data"
-        data_color = "#E8F5E9" if has_check_data else "#FFEBEE"
-        st.markdown(f"""
-        <div style='background: {data_color}; padding: 1rem; border-radius: 8px;'>
-            <p style='margin: 0;'><strong>Health Data:</strong> {data_status}</p>
-            <p style='margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #666;'>
-                {f"I can analyze your trends and detect drift" if has_check_data else "Complete a health check to enable trend analysis"}
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        if has_check_data:
+            # Show actual health data with better contrast
+            latest_check = None
+            if user_id:
+                try:
+                    health_data = get_user_health_data(user_id, days=7)
+                    if health_data['success'] and health_data['health_checks']:
+                        latest_check = health_data['health_checks'][-1]
+                except:
+                    pass
+            
+            if latest_check:
+                check_date = latest_check.get('check_date', 'Unknown')
+                movement = latest_check.get('avg_movement_speed', 'N/A')
+                stability = latest_check.get('avg_stability', 'N/A')
+                
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); 
+                            padding: 1.2rem; border-radius: 10px; border: 2px solid #28a745;
+                            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);'>
+                    <p style='margin: 0; font-size: 1.1rem; color: #155724;'><strong>✅ Health Data</strong></p>
+                    <div style='margin-top: 0.8rem; padding: 0.8rem; background: white; border-radius: 6px;'>
+                        <p style='margin: 0; font-size: 0.95rem; color: #333;'><strong>Total Checks:</strong> {health_checks_count} days</p>
+                        <p style='margin: 0.3rem 0; font-size: 0.95rem; color: #333;'><strong>Latest:</strong> {check_date}</p>
+                        <p style='margin: 0.3rem 0; font-size: 0.85rem; color: #666;'><strong>Movement:</strong> {movement if isinstance(movement, str) else f'{movement:.3f}'}</p>
+                        <p style='margin: 0.3rem 0 0 0; font-size: 0.85rem; color: #666;'><strong>Stability:</strong> {stability if isinstance(stability, str) else f'{stability:.3f}'}</p>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); 
+                            padding: 1.2rem; border-radius: 10px; border: 2px solid #28a745;
+                            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.2);'>
+                    <p style='margin: 0; font-size: 1.1rem; color: #155724;'><strong>✅ Health Data</strong></p>
+                    <p style='margin: 0.8rem 0 0 0; font-size: 0.9rem; color: #155724;'>
+                        {health_checks_count} health checks available for trend analysis
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%); 
+                        padding: 1.2rem; border-radius: 10px; border: 2px solid #dc3545;
+                        box-shadow: 0 2px 8px rgba(220, 53, 69, 0.2);'>
+                <p style='margin: 0; font-size: 1.1rem; color: #721c24;'><strong>❌ Health Data</strong></p>
+                <p style='margin: 0.8rem 0 0 0; font-size: 0.9rem; color: #721c24;'>
+                    Complete a health check to enable trend analysis
+                </p>
+                <a href="?page=Daily%20Health%20Check" style='display: inline-block; margin-top: 0.8rem; 
+                   padding: 0.5rem 1rem; background: #dc3545; color: white; 
+                   text-decoration: none; border-radius: 5px; font-size: 0.9rem;'>
+                    📋 Start Health Check
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     

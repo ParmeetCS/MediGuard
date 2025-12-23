@@ -83,6 +83,12 @@ class ContextRepository:
                         "stress_level": context_data.get('stress_level', 'medium'),
                         "workload": context_data.get('workload', 'moderate'),
                         "activity_level": context_data.get('activity_level', 'moderate'),
+                        # AI-analyzed health report data
+                        "ai_key_findings": context_data.get('ai_key_findings', ''),
+                        "ai_health_recommendations": context_data.get('ai_health_recommendations', ''),
+                        "ai_abnormal_values": context_data.get('ai_abnormal_values', ''),
+                        "ai_positive_aspects": context_data.get('ai_positive_aspects', ''),
+                        "ai_next_steps": context_data.get('ai_next_steps', ''),
                         "created_at": context_data.get('created_at'),
                         "updated_at": context_data.get('updated_at')
                     },

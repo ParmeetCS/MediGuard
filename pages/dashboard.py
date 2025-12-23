@@ -8,6 +8,7 @@ import pandas as pd
 import json
 import os
 from datetime import datetime
+import plotly.graph_objects as go
 
 # Import database module for persistent storage
 from storage.database import load_health_records
@@ -66,17 +67,29 @@ def show():
         with col1:
             val = latest.get('movement_speed', 0) or latest.get('avg_movement_speed', 0)
             prev_val = (previous.get('movement_speed', 0) or previous.get('avg_movement_speed', 0)) if previous is not None else 0
-            st.metric("Movement Speed", f"{val:.2f}", delta=get_delta(val, prev_val))
+            val_percent = val * 100
+            prev_percent = prev_val * 100
+            delta_percent = f"{val_percent - prev_percent:.1f}%" if prev_val > 0 else None
+            status = "🟢" if val_percent >= 80 else "🟡" if val_percent >= 60 else "🟠"
+            st.metric(f"{status} Movement Speed", f"{val_percent:.0f}%", delta=delta_percent)
             
         with col2:
             val = latest.get('stability', 0) or latest.get('avg_stability', 0)
             prev_val = (previous.get('stability', 0) or previous.get('avg_stability', 0)) if previous is not None else 0
-            st.metric("Stability", f"{val:.2f}", delta=get_delta(val, prev_val))
+            val_percent = val * 100
+            prev_percent = prev_val * 100
+            delta_percent = f"{val_percent - prev_percent:.1f}%" if prev_val > 0 else None
+            status = "🟢" if val_percent >= 80 else "🟡" if val_percent >= 60 else "🟠"
+            st.metric(f"{status} Stability", f"{val_percent:.0f}%", delta=delta_percent)
             
         with col3:
             val = latest.get('sit_stand_movement_speed', 0)
             prev_val = previous.get('sit_stand_movement_speed', 0) if previous is not None else 0
-            st.metric("Sit-Stand Speed", f"{val:.2f}", delta=get_delta(val, prev_val))
+            val_percent = val * 100
+            prev_percent = prev_val * 100
+            delta_percent = f"{val_percent - prev_percent:.1f}%" if prev_val > 0 else None
+            status = "🟢" if val_percent >= 80 else "🟡" if val_percent >= 60 else "🟠"
+            st.metric(f"{status} Sit-Stand Speed", f"{val_percent:.0f}%", delta=delta_percent)
 
     st.markdown("---")
     
@@ -92,28 +105,154 @@ def show():
     available_cols = chart_df.columns.tolist()
     
     # Chart 1: Movement Speed
-    st.markdown("#### 🏃 Movement Speed Over Time")
+    st.markdown("<h4 style='color: #00E5FF;'>🏃 MOVEMENT SPEED OVER TIME</h4>", unsafe_allow_html=True)
     if 'movement_speed' in available_cols or 'avg_movement_speed' in available_cols:
         speed_col = 'avg_movement_speed' if 'avg_movement_speed' in available_cols else 'movement_speed'
-        st.line_chart(chart_df[[speed_col]])
-        st.caption("Higher is better - shows how quickly you can move.")
+        
+        # Convert to percentage
+        values_percent = [val * 100 for val in chart_df[speed_col]]
+        dates = chart_df.index
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=values_percent,
+            mode='lines+markers+text',
+            name='Movement Speed',
+            line=dict(color='#00E5FF', width=6),
+            marker=dict(size=20, color='#00E5FF'),
+            text=[f"<b>{val:.0f}%</b>" for val in values_percent],
+            textposition='top center',
+            textfont=dict(size=18, color='#FFFFFF', family='Arial Black'),
+            hovertemplate='<b>%{x}</b><br>Speed: <b>%{y:.0f}%</b><extra></extra>'
+        ))
+        
+        fig.update_layout(
+            plot_bgcolor='#1e1e1e',
+            paper_bgcolor='#262626',
+            font=dict(color='#FFFFFF', size=14),
+            xaxis_title='Date',
+            yaxis_title='Movement Speed (%)',
+            yaxis=dict(range=[0, 105]),
+            height=400,
+            hovermode='x unified',
+            showlegend=False
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Add interpretation guide
+        with st.expander("ℹ️ Understanding Your Movement Speed"):
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.markdown("🟢 **Excellent** (≥90%)<br><small>Moving quickly & efficiently</small>", unsafe_allow_html=True)
+            with col2:
+                st.markdown("✅ **Good** (80-89%)<br><small>Healthy movement</small>", unsafe_allow_html=True)
+            with col3:
+                st.markdown("🟡 **Fair** (70-79%)<br><small>Slower than ideal</small>", unsafe_allow_html=True)
+            with col4:
+                st.markdown("🟠 **Needs Attention** (<70%)<br><small>Significant slowness</small>", unsafe_allow_html=True)
     else:
         st.info("Movement speed data not available yet.")
 
     # Chart 2: Stability
-    st.markdown("#### ⚖️ Stability & Balance")
+    st.markdown("<h4 style='color: #00E676;'>⚖️ STABILITY & BALANCE OVER TIME</h4>", unsafe_allow_html=True)
     if 'stability' in available_cols or 'avg_stability' in available_cols:
         stability_col = 'avg_stability' if 'avg_stability' in available_cols else 'stability'
-        st.line_chart(chart_df[[stability_col]])
-        st.caption("Higher is better - shows how steady you are.")
+        
+        # Convert to percentage
+        values_percent = [val * 100 for val in chart_df[stability_col]]
+        dates = chart_df.index
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=values_percent,
+            mode='lines+markers+text',
+            name='Stability',
+            line=dict(color='#00E676', width=6),
+            marker=dict(size=20, color='#00E676'),
+            text=[f"<b>{val:.0f}%</b>" for val in values_percent],
+            textposition='top center',
+            textfont=dict(size=18, color='#FFFFFF', family='Arial Black'),
+            hovertemplate='<b>%{x}</b><br>Stability: <b>%{y:.0f}%</b><extra></extra>'
+        ))
+        
+        fig.update_layout(
+            plot_bgcolor='#1e1e1e',
+            paper_bgcolor='#262626',
+            font=dict(color='#FFFFFF', size=14),
+            xaxis_title='Date',
+            yaxis_title='Stability (%)',
+            yaxis=dict(range=[0, 105]),
+            height=400,
+            hovermode='x unified',
+            showlegend=False
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Add interpretation guide
+        with st.expander("ℹ️ Understanding Your Stability Score"):
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.markdown("🟢 **Excellent** (≥85%)<br><small>Very steady, low fall risk</small>", unsafe_allow_html=True)
+            with col2:
+                st.markdown("✅ **Good** (75-84%)<br><small>Mostly stable</small>", unsafe_allow_html=True)
+            with col3:
+                st.markdown("🟡 **Fair** (65-74%)<br><small>Some wobbliness</small>", unsafe_allow_html=True)
+            with col4:
+                st.markdown("🟠 **Needs Attention** (<65%)<br><small>Higher fall risk</small>", unsafe_allow_html=True)
     else:
         st.info("Stability data not available yet.")
     
     # Chart 3: Sit-Stand Performance
-    st.markdown("#### 🪑 Sit-Stand Speed")
+    st.markdown("<h4 style='color: #FF6B9D;'>🪑 SIT-STAND SPEED OVER TIME</h4>", unsafe_allow_html=True)
     if 'sit_stand_movement_speed' in available_cols:
-        st.line_chart(chart_df[['sit_stand_movement_speed']])
-        st.caption("Higher is better - shows leg strength and mobility.")
+        
+        # Convert to percentage
+        values_percent = [val * 100 for val in chart_df['sit_stand_movement_speed']]
+        dates = chart_df.index
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=values_percent,
+            mode='lines+markers+text',
+            name='Sit-Stand Speed',
+            line=dict(color='#FF6B9D', width=6),
+            marker=dict(size=20, color='#FF6B9D'),
+            text=[f"<b>{val:.0f}%</b>" for val in values_percent],
+            textposition='top center',
+            textfont=dict(size=18, color='#FFFFFF', family='Arial Black'),
+            hovertemplate='<b>%{x}</b><br>Sit-Stand: <b>%{y:.0f}%</b><extra></extra>'
+        ))
+        
+        fig.update_layout(
+            plot_bgcolor='#1e1e1e',
+            paper_bgcolor='#262626',
+            font=dict(color='#FFFFFF', size=14),
+            xaxis_title='Date',
+            yaxis_title='Sit-Stand Speed (%)',
+            yaxis=dict(range=[0, 105]),
+            height=400,
+            hovermode='x unified',
+            showlegend=False
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Add interpretation guide
+        with st.expander("ℹ️ Understanding Your Sit-Stand Speed"):
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.markdown("🟢 **Excellent** (≥85%)<br><small>Stand up quickly & easily</small>", unsafe_allow_html=True)
+            with col2:
+                st.markdown("✅ **Good** (75-84%)<br><small>Normal speed, no issues</small>", unsafe_allow_html=True)
+            with col3:
+                st.markdown("🟡 **Fair** (65-74%)<br><small>Taking longer</small>", unsafe_allow_html=True)
+            with col4:
+                st.markdown("🟠 **Needs Attention** (<65%)<br><small>Struggling to stand</small>", unsafe_allow_html=True)
     else:
         st.info("Sit-stand data not available yet.")
 
@@ -140,14 +279,13 @@ def show():
     
     if stability_col:
         avg_stability = df[stability_col].mean()
-        if avg_stability >= 0.85:
-            st.success(f"✅ Your balance is excellent! (Average: {avg_stability:.2f})")
-        elif avg_stability >= 0.75:
-            st.info(f"👍 Your balance is good. (Average: {avg_stability:.2f})")
-        elif avg_stability >= 0.65:
-            st.warning(f"⚠️ Your balance could use some work. (Average: {avg_stability:.2f})")
+        avg_percent = avg_stability * 100
+        if avg_stability >= 0.80:
+            st.success(f"✅ Your balance is excellent! (Average: {avg_percent:.0f}%)")
+        elif avg_stability >= 0.60:
+            st.info(f"👍 Your balance is good. (Average: {avg_percent:.0f}%)")
         else:
-            st.error(f"📉 Consider working on balance exercises. (Average: {avg_stability:.2f})")
+            st.warning(f"⚠️ Your balance could use some work. (Average: {avg_percent:.0f}%)")
     else:
         st.info("Complete more health checks to see insights!")
 
