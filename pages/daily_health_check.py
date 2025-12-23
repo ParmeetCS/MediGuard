@@ -1,6 +1,7 @@
 """
 Daily Health Check - MediGuard Drift AI
 Movement analysis and health assessment page with person detection
+Supports both local (OpenCV) and cloud (browser camera) deployments
 """
 
 import streamlit as st
@@ -10,6 +11,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
 import numpy as np
+from PIL import Image
+import io
 
 # Try to import cv2 - may fail on some cloud deployments
 try:
@@ -32,6 +35,84 @@ except ImportError as e:
     extract_features = None
     PersonDetector = None
     print(f"Warning: Vision modules not available - {e}")
+
+# Check if running on cloud (no direct camera access)
+import os
+IS_CLOUD = os.environ.get('STREAMLIT_SHARING_MODE') or os.environ.get('STREAMLIT_SERVER_HEADLESS') == 'true'
+
+# Import database module
+from storage.database import save_health_record, load_health_records
+from storage.health_repository import save_health_check
+
+
+def extract_features_from_images(images: list, activity_name: str = "general") -> dict:
+    """
+    Extract features from a list of PIL images (for cloud/browser camera mode).
+    This is a simplified version that works without OpenCV's advanced features.
+    """
+    if not images:
+        return {
+            'movement_speed': 0.5,
+            'stability': 0.5,
+            'motion_smoothness': 0.5,
+            'posture_deviation': 0.1,
+            'micro_movements': 0.1,
+            'range_of_motion': 0.5,
+            'acceleration_variance': 0.1,
+            'frame_count': 0,
+            'frame_by_frame_motion': []
+        }
+    
+    # Convert PIL images to numpy arrays
+    frames = []
+    for img in images:
+        if img is not None:
+            frames.append(np.array(img))
+    
+    if len(frames) < 2:
+        return {
+            'movement_speed': 0.75,
+            'stability': 0.80,
+            'motion_smoothness': 0.70,
+            'posture_deviation': 0.15,
+            'micro_movements': 0.10,
+            'range_of_motion': 0.65,
+            'acceleration_variance': 0.12,
+            'frame_count': len(frames),
+            'frame_by_frame_motion': [0.5] * len(frames)
+        }
+    
+    # Simple motion detection between frames
+    motion_values = []
+    for i in range(1, len(frames)):
+        # Calculate simple difference between frames
+        diff = np.abs(frames[i].astype(float) - frames[i-1].astype(float))
+        motion = np.mean(diff) / 255.0  # Normalize to 0-1
+        motion_values.append(motion)
+    
+    avg_motion = np.mean(motion_values) if motion_values else 0.5
+    motion_std = np.std(motion_values) if motion_values else 0.1
+    
+    # Map motion to health metrics (higher motion = better for movement tests)
+    # Stability is inverse (lower motion = better stability)
+    if activity_name == "stability":
+        movement_speed = max(0.3, 1.0 - avg_motion * 5)  # Less motion is better for stability
+        stability = max(0.3, 1.0 - motion_std * 10)
+    else:
+        movement_speed = min(1.0, 0.5 + avg_motion * 3)  # More motion is better for movement
+        stability = max(0.4, 1.0 - motion_std * 5)
+    
+    return {
+        'movement_speed': round(movement_speed, 3),
+        'stability': round(stability, 3),
+        'motion_smoothness': round(max(0.4, 1.0 - motion_std * 8), 3),
+        'posture_deviation': round(min(0.5, motion_std * 3), 3),
+        'micro_movements': round(min(0.4, avg_motion * 2), 3),
+        'range_of_motion': round(min(1.0, avg_motion * 4 + 0.3), 3),
+        'acceleration_variance': round(motion_std, 3),
+        'frame_count': len(frames),
+        'frame_by_frame_motion': motion_values
+    }
 
 # Import database module
 from storage.database import save_health_record, load_health_records
@@ -64,51 +145,18 @@ def show():
     
     st.markdown("---")
     
+    # Determine camera mode: OpenCV (local) or Browser (cloud)
+    USE_BROWSER_CAMERA = IS_CLOUD or not CV2_AVAILABLE or not VISION_AVAILABLE
+    
     # Check if camera/vision features are available
-    if not CV2_AVAILABLE or not VISION_AVAILABLE:
-        st.warning("⚠️ **Camera-Based Analysis Not Available on Cloud Deployment**")
+    if USE_BROWSER_CAMERA:
+        st.info("📹 **Browser Camera Mode** - Using your device's camera through the browser")
         st.markdown("""
-        <div style='background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); padding: 1.5rem; border-radius: 12px; color: white;'>
-            <h3 style='margin: 0 0 1rem 0; color: white;'>📹 Camera Features Unavailable</h3>
-            <p style='margin: 0;'>The camera-based movement analysis requires OpenCV which is not fully 
-            supported on Streamlit Cloud. This feature works on local deployments.</p>
-            <br/>
-            <p style='margin: 0;'><b>Available alternatives:</b></p>
-            <ul style='margin: 0.5rem 0;'>
-                <li>📊 View your <b>Dashboard</b> for historical health data</li>
-                <li>💬 Use <b>AI Health Chat</b> for personalized health insights</li>
-                <li>📖 Check the <b>Guide</b> for health information</li>
-                <li>🏠 Run the app locally for full camera features</li>
-            </ul>
+        <div style='background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); padding: 1rem; border-radius: 12px; color: white; margin-bottom: 1rem;'>
+            <p style='margin: 0;'><b>🌐 Cloud Mode Active:</b> Camera access works through your browser. 
+            For best results, ensure good lighting and position yourself in frame.</p>
         </div>
         """, unsafe_allow_html=True)
-        
-        st.markdown("---")
-        st.subheader("📊 Your Historical Health Data")
-        
-        # Show historical data instead
-        history_df = load_history_df()
-        if not history_df.empty:
-            st.success(f"✅ Found {len(history_df)} health check records")
-            
-            # Display latest metrics
-            latest = history_df.iloc[-1] if len(history_df) > 0 else None
-            if latest is not None:
-                st.markdown("**Latest Health Check:**")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    val = latest.get('movement_speed', latest.get('avg_movement_speed', 0))
-                    st.metric("Movement Speed", f"{float(val)*100:.0f}%" if val else "N/A")
-                with col2:
-                    val = latest.get('stability', latest.get('avg_stability', 0))
-                    st.metric("Stability", f"{float(val)*100:.0f}%" if val else "N/A")
-                with col3:
-                    val = latest.get('sit_stand_movement_speed', 0)
-                    st.metric("Sit-Stand Speed", f"{float(val)*100:.0f}%" if val else "N/A")
-        else:
-            st.info("No health check records found. Complete your first health check on a local deployment.")
-        
-        return  # Exit early if vision not available
     
     # Initialize Session State FIRST
     if 'stage' not in st.session_state:
@@ -143,11 +191,85 @@ def show():
             st.session_state.movement_complete = False
             st.rerun()
 
-    # Recording Function
+    # Recording Function - Supports both OpenCV (local) and Browser Camera (cloud)
     def run_recording_session(activity_key, duration, instruction):
-        """Recording session with camera preview and person detection."""
+        """Recording session with camera preview. Supports both local and cloud deployments."""
         st.info(f"📋 **Instructions:** {instruction}")
         
+        # Check if we're using browser camera mode
+        if USE_BROWSER_CAMERA:
+            return run_browser_camera_session(activity_key, duration, instruction)
+        else:
+            return run_opencv_camera_session(activity_key, duration, instruction)
+    
+    def run_browser_camera_session(activity_key, duration, instruction):
+        """Browser-based camera recording for cloud deployments using st.camera_input."""
+        st.markdown("""
+        <div style='background: #e3f2fd; padding: 15px; border-radius: 10px; border-left: 4px solid #2196F3; margin: 10px 0;'>
+            <b>📸 Browser Camera Mode:</b> Take multiple photos to capture your movement.
+            <br>Click the camera button below to capture frames during your activity.
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Initialize session state for captured images
+        if f'{activity_key}_images' not in st.session_state:
+            st.session_state[f'{activity_key}_images'] = []
+        
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col1:
+            if st.button(f"🔄 Clear & Restart", key=f"clear_{activity_key}", use_container_width=True):
+                st.session_state[f'{activity_key}_images'] = []
+                st.rerun()
+        with col2:
+            pass  # Empty column for spacing
+        with col3:
+            skip_btn = st.button(f"⏭️ Skip", key=f"skip_{activity_key}", use_container_width=True)
+        
+        if skip_btn:
+            return "skip"
+        
+        # Camera input widget
+        st.markdown(f"### 📷 Capture {3} photos while performing the activity")
+        st.markdown(f"**Activity:** {instruction}")
+        
+        captured_count = len(st.session_state[f'{activity_key}_images'])
+        st.progress(min(captured_count / 3, 1.0), text=f"Captured: {captured_count}/3 photos")
+        
+        # Show camera input
+        camera_photo = st.camera_input(
+            f"📸 Take photo {captured_count + 1} of 3", 
+            key=f"camera_{activity_key}_{captured_count}"
+        )
+        
+        if camera_photo is not None:
+            # Convert to PIL Image
+            image = Image.open(camera_photo)
+            st.session_state[f'{activity_key}_images'].append(image)
+            st.success(f"✅ Photo {captured_count + 1} captured!")
+            time.sleep(0.5)
+            st.rerun()
+        
+        # Show captured images
+        if st.session_state[f'{activity_key}_images']:
+            st.markdown("#### 📸 Captured Photos:")
+            cols = st.columns(len(st.session_state[f'{activity_key}_images']))
+            for i, img in enumerate(st.session_state[f'{activity_key}_images']):
+                with cols[i]:
+                    st.image(img, caption=f"Photo {i+1}", use_container_width=True)
+        
+        # Complete button when enough photos captured
+        if len(st.session_state[f'{activity_key}_images']) >= 3:
+            st.success("✅ All photos captured!")
+            if st.button("📊 Analyze Movement", key=f"analyze_{activity_key}", type="primary", use_container_width=True):
+                images = st.session_state[f'{activity_key}_images']
+                # Clear for next activity
+                st.session_state[f'{activity_key}_images'] = []
+                return images
+        
+        return None
+    
+    def run_opencv_camera_session(activity_key, duration, instruction):
+        """OpenCV-based camera recording for local deployments."""
         # Initialize person detector
         detector = PersonDetector()
         
@@ -695,6 +817,7 @@ def show():
             st.info("📊 No history yet. Complete your first assessment to track progress!")
 
     # STAGE: SIT TO STAND
+    # STAGE: SIT-TO-STAND
     elif st.session_state.stage == 'sit_stand':
         st.header("1️⃣ Sit-to-Stand Assessment")
         result = run_recording_session("sit_stand", 5, "Sit on a chair with arms crossed. Stand up fully, then sit back down. Repeat naturally.")
@@ -704,7 +827,11 @@ def show():
             st.rerun()
         elif result:
             with st.spinner("🔬 Analyzing biomechanics..."):
-                feats = extract_features(result, activity_name="sit_to_stand")
+                # Handle both numpy arrays (OpenCV) and PIL images (browser camera)
+                if USE_BROWSER_CAMERA:
+                    feats = extract_features_from_images(result, activity_name="sit_to_stand")
+                else:
+                    feats = extract_features(result, activity_name="sit_to_stand")
                 st.session_state.activity_data['sit_stand'] = feats
                 st.session_state.sit_stand_complete = True
             
@@ -727,7 +854,11 @@ def show():
             st.rerun()
         elif result:
             with st.spinner("🔬 Analyzing balance patterns..."):
-                feats = extract_features(result, activity_name="stability")
+                # Handle both numpy arrays (OpenCV) and PIL images (browser camera)
+                if USE_BROWSER_CAMERA:
+                    feats = extract_features_from_images(result, activity_name="stability")
+                else:
+                    feats = extract_features(result, activity_name="stability")
                 st.session_state.activity_data['stability'] = feats
                 st.session_state.stability_complete = True
         
@@ -750,7 +881,11 @@ def show():
             st.rerun()
         elif result:
             with st.spinner("🔬 Analyzing movement dynamics..."):
-                feats = extract_features(result, activity_name="general")
+                # Handle both numpy arrays (OpenCV) and PIL images (browser camera)
+                if USE_BROWSER_CAMERA:
+                    feats = extract_features_from_images(result, activity_name="general")
+                else:
+                    feats = extract_features(result, activity_name="general")
                 st.session_state.activity_data['movement'] = feats
                 st.session_state.movement_complete = True
         
