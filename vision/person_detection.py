@@ -128,11 +128,26 @@ def camera_stream_with_detection() -> 'Generator':
     Yields:
         Tuple of (frame with boxes, person count)
     """
+    import sys
+    import time
+    
+    if not CV2_AVAILABLE:
+        print("Error: OpenCV (cv2) is not available.")
+        yield None, 0
+        return
+    
     detector = PersonDetector()
     camera = None
     
     try:
-        camera = cv2.VideoCapture(0)
+        # Try different camera backends for Windows compatibility
+        if sys.platform == 'win32':
+            camera = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            if not camera.isOpened():
+                print("DirectShow failed, trying default backend...")
+                camera = cv2.VideoCapture(0)
+        else:
+            camera = cv2.VideoCapture(0)
         
         if not camera.isOpened():
             print("Error: Could not access webcam.")
@@ -141,12 +156,20 @@ def camera_stream_with_detection() -> 'Generator':
 
         camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
+        # Warm up the camera
+        for _ in range(5):
+            camera.read()
+        
+        print("Camera with detection initialized successfully")
         
         while True:
             success, frame = camera.read()
             
-            if not success:
-                break
+            if not success or frame is None:
+                time.sleep(0.1)
+                continue
             
             # Convert BGR to RGB
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -158,6 +181,8 @@ def camera_stream_with_detection() -> 'Generator':
 
     except Exception as e:
         print(f"Stream error: {e}")
+        import traceback
+        traceback.print_exc()
         yield None, 0
 
     finally:

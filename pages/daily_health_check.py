@@ -179,17 +179,61 @@ def show():
         
         if start_btn:
             frames = []
-            frame_gen = camera_stream()
-            start_time = time.time()
+            camera = None
             
-            for frame in frame_gen:
-                elapsed = time.time() - start_time
-                if elapsed > duration:
-                    break
+            try:
+                # Open camera directly with better error handling
+                import sys
                 
-                if frame is not None:
+                if sys.platform == 'win32':
+                    # Try DirectShow backend first for Windows
+                    camera = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+                    if not camera.isOpened():
+                        camera = cv2.VideoCapture(0)
+                else:
+                    camera = cv2.VideoCapture(0)
+                
+                if not camera.isOpened():
+                    cam_placeholder.error("❌ **Camera Error:** Could not access the camera. Please check:")
+                    st.error("""
+                    **Troubleshooting Steps:**
+                    1. Make sure no other application is using the camera
+                    2. Check that camera permissions are enabled in Windows Settings
+                    3. Try closing and reopening your browser
+                    4. Restart the Streamlit app
+                    """)
+                    return None
+                
+                # Configure camera
+                camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                
+                # Warm up camera
+                for _ in range(5):
+                    camera.read()
+                
+                cam_placeholder.info("📹 Camera starting...")
+                
+                start_time = time.time()
+                frame_count = 0
+                
+                while True:
+                    elapsed = time.time() - start_time
+                    if elapsed > duration:
+                        break
+                    
+                    success, frame = camera.read()
+                    
+                    if not success or frame is None:
+                        time.sleep(0.01)
+                        continue
+                    
+                    # Convert BGR to RGB
+                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    
                     # Detect person and draw green bounding boxes
-                    processed_frame, person_count = detector.process_frame(frame, draw_boxes=True)
+                    processed_frame, person_count = detector.process_frame(rgb_frame, draw_boxes=True)
                     
                     # Add recording indicator overlay
                     h, w = processed_frame.shape[:2]
@@ -205,22 +249,31 @@ def show():
                                   (w - 250, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
                     
                     cam_placeholder.image(processed_frame, channels="RGB", use_container_width=True)
-                    frames.append(frame)  # Store original frame for processing
+                    frames.append(rgb_frame)  # Store original frame for processing
+                    frame_count += 1
+                    
+                    progress = min(elapsed / duration, 1.0)
+                    progress_bar.progress(progress, text=f"Recording... {int((1-progress)*duration)}s remaining")
+                    status_text.metric("Frames", frame_count)
+                    person_status.metric("👤 Detected", person_count)
+                    
+                    time.sleep(0.01)
                 
-                progress = min(elapsed / duration, 1.0)
-                progress_bar.progress(progress, text=f"Recording... {int((1-progress)*duration)}s remaining")
-                status_text.metric("Frames", len(frames))
+                progress_bar.progress(1.0, text="✅ Complete!")
+                cam_placeholder.success(f"📹 Recording saved successfully! Captured {len(frames)} frames.")
+                time.sleep(1)
                 
-                # Update person detection status
-                if frame is not None:
-                    _, count = detector.process_frame(frame, draw_boxes=False)
-                    person_status.metric("👤 Detected", count)
+                return frames if frames else None
+                
+            except Exception as e:
+                cam_placeholder.error(f"❌ **Camera Error:** {str(e)}")
+                st.exception(e)
+                return None
             
-            progress_bar.progress(1.0, text="✅ Complete!")
-            cam_placeholder.success("📹 Recording saved successfully!")
-            time.sleep(1)
-            
-            return frames
+            finally:
+                if camera is not None:
+                    camera.release()
+                    print("Camera released")
         
         cam_placeholder.info("👆 Click 'Start Recording' to begin capturing video with person detection")
         return None
