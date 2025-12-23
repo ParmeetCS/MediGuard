@@ -352,7 +352,7 @@ with st.sidebar:
     """)
     
     st.markdown("---")
-    st.markdown("**Version:** 1.0.0")
+    st.markdown("**Version:** 2.0.0")
     st.markdown("**© 2025 MediGuard**")
 
 # ========================================
