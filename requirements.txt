@@ -1,6 +1,4 @@
 streamlit
-streamlit-webrtc
-av
 requests
 pydantic
 python-dotenv
